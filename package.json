@@ -1,0 +1,28 @@
+{
+  "name": "@ezquill/mcp-server",
+  "version": "0.1.0",
+  "description": "MCP server for ezQuill \u2014 read a writer's manuscript, story world and timeline from an AI agent.",
+  "type": "module",
+  "license": "UNLICENSED",
+  "private": false,
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "bin": {
+    "mcp-server": "src/index.js",
+    "ezquill-mcp-server": "src/index.js",
+    "ezquill-mcp-server-http": "src/http.js"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test \"__tests__/**/*.test.js\"",
+    "start": "node src/index.js",
+    "start:http": "node src/http.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0"
+  }
+}
