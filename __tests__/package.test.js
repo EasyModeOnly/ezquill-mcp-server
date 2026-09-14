@@ -47,6 +47,26 @@ describe('package.json', () => {
     }
   });
 
+  test('it names the repository, which PROVENANCE verifies', () => {
+    // Not metadata politeness. Trusted publishing signs a provenance statement
+    // naming the building repository, and the registry then refuses the upload
+    // unless package.json agrees:
+    //
+    //   422 Unprocessable Entity — Error verifying sigstore provenance bundle:
+    //   "repository.url" is "", expected to match
+    //   "https://github.com/EasyModeOnly/ezquill-mcp-server" from provenance
+    //
+    // It fails AFTER signing and after the signature is written to the public
+    // transparency log, so the failure looks like a registry problem rather
+    // than a missing field in a file nothing else reads.
+    assert.ok(pkg.repository?.url, 'package.json needs a repository.url');
+    assert.match(
+      pkg.repository.url,
+      /github\.com\/EasyModeOnly\/ezquill-mcp-server/,
+      'repository.url must name the repo that builds it, or provenance rejects the publish'
+    );
+  });
+
   test('it is publishable, and says so consistently', () => {
     // A scoped package defaults to RESTRICTED, and a restricted publish on a
     // free org fails with a 402 that reads like a billing problem rather than
