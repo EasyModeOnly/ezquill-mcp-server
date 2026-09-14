@@ -78,12 +78,20 @@ jobs:
       # who asked for a deploy — telling them nothing happened is the point. The
       # opposite rule applies to checks that run on every push, where a red
       # "not enabled here" is how people learn to ignore red.
+      # Names the RESOURCE KIND and the project, not just an identifier.
+      #
+      # The first version said only "ezquill-mcp-dev does not exist", and the
+      # first person to read it reasonably concluded the GCP project was wrong —
+      # there is no `ezquill-mcp-dev` project, only `ezquill-dev`. A bare name
+      # in an error message invites the reader to guess what kind of thing it
+      # is, and they will guess the thing that is currently on their mind.
       - name: Require the service to exist
         run: |
           if ! gcloud run services describe "${{ steps.env.outputs.service }}" \
                --region "$REGION" --project "${{ steps.env.outputs.project }}" >/dev/null 2>&1; then
-            echo "::error::${{ steps.env.outputs.service }} does not exist."
-            echo "::error::Set deploy_mcp = true in terraform/${{ inputs.environment }}.tfvars and apply first."
+            echo "::error::No Cloud Run service named '${{ steps.env.outputs.service }}' in project '${{ steps.env.outputs.project }}' (region $REGION)."
+            echo "::error::This is expected until the connector is switched on: set deploy_mcp = true in ezquill/terraform/${{ inputs.environment }}.tfvars, along with mcp_image, and apply."
+            echo "::error::The image built and pushed by this run is ${AR_REGISTRY}/${IMAGE_NAME}:${{ steps.env.outputs.sha }} — use that as mcp_image."
             exit 1
           fi
 
