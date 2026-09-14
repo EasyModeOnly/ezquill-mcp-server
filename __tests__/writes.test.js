@@ -102,13 +102,66 @@ describe('write_draft append — the reconcile is composed, never exposed', () =
     // editor's job and getting it wrong reshapes a manuscript silently.
     stub({
       '/nodes': { nodes: [], hasMore: false },
-      '/nodes/s': { id: 's', hasProse: true, content: { plainText: 'All of it in one lump.' } },
+      '/nodes/s': {
+        id: 's',
+        hasProse: true,
+        content: {
+          document: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'All of it in one lump.' }] }] },
+          plainText: 'All of it in one lump.',
+        },
+      },
     });
 
     await assert.rejects(
       () => run('write_draft', { projectId: 'p', nodeId: 's', action: 'append', paragraphs: ['More.'] }),
       (err) => /not split into paragraphs/i.test(err.message)
     );
+  });
+
+  test('a freshly planted chapter — an EMPTY document — is adopted and written', async () => {
+    // The wizard, the kickoff and create_project all plant prose levels with an
+    // empty document. Refusing those left every new chapter unwritable from the
+    // connector; found by creating a project and writing in it.
+    const sent = stub({
+      '/nodes': { nodes: [], hasMore: false },
+      '/nodes/s': { id: 's', hasProse: true, content: { document: { type: 'doc', content: [] }, plainText: '' } },
+      'PUT /blocks': (body) => ({ blocks: body.blocks, refused: [], removed: [] }),
+    });
+
+    await run('write_draft', { projectId: 'p', nodeId: 's', action: 'append', paragraphs: ['First.'] });
+
+    const put = sent.find((r) => r.method === 'PUT');
+    assert.equal(put.body.adoptSectionProse, true);
+    assert.equal(put.body.blocks.length, 1);
+  });
+
+  test('a document holding only an image has no text and is still REFUSED', async () => {
+    // Adopting nulls the document; "no plain text" would delete the image.
+    const sent = stub({
+      '/nodes': { nodes: [], hasMore: false },
+      '/nodes/s': {
+        id: 's',
+        hasProse: true,
+        content: { document: { type: 'doc', content: [{ type: 'image', attrs: { src: 'x' } }] }, plainText: '' },
+      },
+    });
+
+    await assert.rejects(
+      () => run('write_draft', { projectId: 'p', nodeId: 's', action: 'append', paragraphs: ['More.'] }),
+      (err) => /not split into paragraphs/i.test(err.message)
+    );
+    assert.equal(sent.some((r) => r.method === 'PUT'), false);
+  });
+
+  test('a scene that already has blocks never asks to adopt', async () => {
+    const sent = stub({
+      '/nodes': { nodes: [written('b1', 'One.', 1, 4)], hasMore: false },
+      'PUT /blocks': (body) => ({ blocks: body.blocks, refused: [], removed: [] }),
+    });
+
+    await run('write_draft', { projectId: 'p', nodeId: 's', action: 'append', paragraphs: ['Two.'] });
+
+    assert.equal(sent.find((r) => r.method === 'PUT').body.adoptSectionProse, undefined);
   });
 });
 

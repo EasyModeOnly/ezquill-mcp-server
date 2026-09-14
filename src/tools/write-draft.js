@@ -98,7 +98,7 @@ export const tools = [
         if (texts.length === 0) {
           throw new ToolError(Code.REQUEST_FAILED, 'append needs at least one paragraph.');
         }
-        await refuseUnmigrated(projectId, nodeId, blocks);
+        const adoptSectionProse = await refuseUnmigrated(projectId, nodeId, blocks);
 
         // Every existing block is sent back BY ID WITH NO CONTENT, which the
         // endpoint reads as "unchanged". Omitting them would delete them;
@@ -112,7 +112,7 @@ export const tools = [
         return report(
           await call(`/projects/${projectId}/nodes/${nodeId}/blocks`, {
             method: 'PUT',
-            body: { blocks: save },
+            body: { blocks: save, ...(adoptSectionProse ? { adoptSectionProse: true } : {}) },
           }),
           { added: texts.length }
         );
@@ -178,11 +178,27 @@ export const tools = [
  * existing prose into paragraphs is the editor's job, and getting it wrong here
  * would silently reshape a manuscript. Refused, with the state named, rather
  * than attempted.
+ *
+ * # Except a document with NOTHING in it, which is adopted
+ *
+ * The wizard, the kickoff and create_project all plant a prose level with an
+ * empty document — that is what makes a chapter writable on the day it is
+ * made. Refusing those made every freshly planted chapter unwritable from the
+ * connector, which was found by creating a project and trying to write in it.
+ * An empty document has nothing to split, so adopting it is exactly what the
+ * editor does when it seeds itself from one.
+ *
+ * "Empty" means no content NODES, not no text: a document holding only an
+ * image has no plain text either, and nulling it would delete the image. That
+ * is the same reason the API makes adoption a flag rather than inferring it.
+ *
+ * @returns {Promise<boolean>} whether the save must adopt the section's document
  */
 async function refuseUnmigrated(projectId, nodeId, blocks) {
-  if (blocks.length > 0) return;
+  if (blocks.length > 0) return false;
 
   const node = await call(`/projects/${projectId}/nodes/${nodeId}`);
+  if (node?.hasProse && isEmptyDocument(node.content?.document)) return true;
   if (node?.hasProse) {
     throw new ToolError(
       Code.REQUEST_FAILED,
@@ -191,7 +207,12 @@ async function refuseUnmigrated(projectId, nodeId, blocks) {
         'You can still propose changes to it with action "revise".'
     );
   }
+  return false;
 }
+
+/** A Tiptap doc with no content nodes at all. An absent document is not one. */
+const isEmptyDocument = (doc) =>
+  Boolean(doc) && typeof doc === 'object' && (!Array.isArray(doc.content) || doc.content.length === 0);
 
 /**
  * Propose a change instead of making one.
