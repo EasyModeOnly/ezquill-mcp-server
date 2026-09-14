@@ -1,0 +1,26 @@
+{
+  "name": "ezquill",
+  "owner": {
+    "name": "EasyModeOnly",
+    "url": "https://github.com/EasyModeOnly"
+  },
+  "description": "The ezQuill connector for Claude Code.",
+  "plugins": [
+    {
+      "name": "ezquill",
+      "source": "./plugin",
+      "description": "Read and write a writer's manuscript, story world and timeline in ezQuill.",
+      "version": "0.1.0",
+      "license": "Apache-2.0",
+      "homepage": "https://ezquill.com",
+      "repository": "https://github.com/EasyModeOnly/ezquill-mcp-server",
+      "keywords": [
+        "writing",
+        "manuscript",
+        "fiction",
+        "story",
+        "mcp"
+      ]
+    }
+  ]
+}

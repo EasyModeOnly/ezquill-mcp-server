@@ -129,6 +129,44 @@ npm test        # node:test, no framework
 There is no build step. That is deliberate: it is what lets the package be
 published from a workflow that never installs dependencies.
 
+## Claude Code plugin
+
+```
+/plugin marketplace add EasyModeOnly/ezquill-mcp-server
+/plugin install ezquill@ezquill
+```
+
+The plugin is a POINTER, not a copy: `plugin/.claude-plugin/plugin.json`
+declares one MCP server that runs the published npm package, pinned to the
+version this repo publishes. A test keeps those two numbers equal, because
+nothing else does — bumping `package.json` without bumping the pin would ship
+a plugin that quietly keeps installing the old version for ever.
+
+It lives in `plugin/` rather than at the repository root so the plugin root
+contains the manifest and nothing else. A plugin rooted at this repo would put
+the whole checkout — `src`, `node_modules`, the workflows — into everybody's
+plugin cache to deliver two files.
+
+**If you are developing THIS repository, the plugin's server will not connect,
+and the error says nothing useful.** `npx -p @ezquill/mcp-server@x mcp-server`
+run from a directory whose own `package.json` is named `@ezquill/mcp-server`
+finds the package "already present", skips the install, and fails with
+
+```
+sh: line 1: mcp-server: command not found
+```
+
+which Claude Code reports as `CONNECTION_CLOSED: Connection closed`. It is the
+working directory, not the plugin: the same command works from anywhere else.
+Node_modules has nothing to do with it — a bare `package.json` of that name is
+enough. Use the remote connector while working here, or open Claude Code
+somewhere else.
+
+A future version should declare the REMOTE connector instead —
+`{"type": "http", "url": "https://mcp.ezquill.com/mcp"}` validates in a plugin
+manifest and needs no Node, no npx, no version pin, and no local process. It is
+not done yet only because the prod connector is not deployed.
+
 ## Publishing
 
 `.github/workflows/publish.yml` runs on every push to `main` and decides what

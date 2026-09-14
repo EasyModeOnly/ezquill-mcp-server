@@ -11,6 +11,13 @@ import { readFileSync } from 'node:fs';
 
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 
+const plugin = JSON.parse(
+  readFileSync(new URL('../plugin/.claude-plugin/plugin.json', import.meta.url), 'utf8')
+);
+const marketplace = JSON.parse(
+  readFileSync(new URL('../.claude-plugin/marketplace.json', import.meta.url), 'utf8')
+);
+
 describe('package.json', () => {
   test('exactly one bin is named after the UNSCOPED package name', () => {
     // npx resolves a multi-bin package only when one bin matches the unscoped
@@ -52,5 +59,42 @@ describe('package.json', () => {
     // is close to the last word on this.
     assert.notEqual(pkg.license, 'UNLICENSED');
     assert.ok(pkg.files.includes('LICENSE'), 'the licence has to be in the tarball to be one');
+  });
+});
+
+describe('the Claude Code plugin manifest', () => {
+  test('the npx invocation pins the version this repo publishes', () => {
+    // THE failure this test exists for. The plugin installs the connector from
+    // the REGISTRY, pinned, so bumping package.json without bumping this arg
+    // ships a plugin that silently keeps installing the old published version —
+    // for ever, and with no error anywhere. Nothing else in the repo connects
+    // these two numbers.
+    const server = plugin.mcpServers?.ezquill;
+    assert.ok(server, 'the plugin must declare the ezquill MCP server');
+
+    const spec = server.args.find((a) => a.startsWith('@ezquill/mcp-server@'));
+    assert.ok(spec, `no pinned package spec in ${JSON.stringify(server.args)}`);
+    assert.equal(
+      spec,
+      `${pkg.name}@${pkg.version}`,
+      'the plugin pins a different version from the one this repo publishes'
+    );
+  });
+
+  test('it invokes the bin explicitly, not by package name alone', () => {
+    // `npx -p <pkg> <bin>` rather than `npx <pkg>`: the long form keeps working
+    // if a bin is ever renamed, and keeps working against versions already
+    // published. See __tests__/package.test.js's bin test for what the short
+    // form does when nothing matches.
+    const { command, args } = plugin.mcpServers.ezquill;
+    assert.equal(command, 'npx');
+    assert.ok(args.includes('-p'), 'use the explicit `-p <package> <bin>` form');
+    assert.equal(args.at(-1), pkg.name.replace(/^@[^/]+\//, ''));
+  });
+
+  test('the three versions do not drift', () => {
+    assert.equal(plugin.version, pkg.version, 'plugin.json version');
+    assert.equal(marketplace.plugins[0].version, pkg.version, 'marketplace entry version');
+    assert.equal(marketplace.plugins[0].name, plugin.name, 'marketplace entry name');
   });
 });
