@@ -20,18 +20,35 @@ describe('the tool surface', () => {
     assert.equal(new Set(names).size, names.length);
   });
 
-  test('every manuscript tool is annotated read-only', () => {
-    // Writes are task #274, so nothing here may claim otherwise. A tool that
-    // mutates must not inherit readOnlyHint from a neighbour, because a client
-    // uses it to decide whether to ask the person first. The sign-in tools are
-    // exempt: they change state on this machine, and say so.
+  test('every tool declares readOnlyHint, truthfully', () => {
+    // A client uses this to decide whether to ask the person first, so a tool
+    // that mutates must never inherit `true` from a neighbour. Read tools are
+    // named explicitly rather than inferred, so ADDING a write tool cannot
+    // quietly land in the read list.
+    const readOnly = new Set([
+      'list_projects', 'get_project', 'search_project', 'get_outline', 'read_scene',
+      'list_entities', 'get_entity', 'get_timeline', 'list_feedback',
+    ]);
+
     for (const tool of TOOLS) {
-      if (LOCAL_ONLY.has(tool.name)) {
-        assert.notEqual(tool.annotations?.readOnlyHint, true,
-          `${tool.name} changes local state and must not claim to be read-only`);
-        continue;
-      }
-      assert.equal(tool.annotations?.readOnlyHint, true, `${tool.name}`);
+      assert.equal(typeof tool.annotations?.readOnlyHint, 'boolean',
+        `${tool.name} must declare readOnlyHint either way`);
+      assert.equal(tool.annotations.readOnlyHint, readOnly.has(tool.name),
+        `${tool.name} declares readOnlyHint=${tool.annotations.readOnlyHint}`);
+    }
+  });
+
+  test('there is no tool that can accept a suggestion', () => {
+    // The whole reason write_draft's `revise` is a real safeguard rather than a
+    // gesture. A connector granted ezquill:write holds both Comment and Write,
+    // so an agent able to propose would also be able to accept — and a
+    // suggestion it can accept itself is a write with extra steps.
+    for (const tool of TOOLS) {
+      assert.ok(!/accept/i.test(tool.name), `${tool.name} looks like it can accept a proposal`);
+      assert.ok(
+        !/accept/i.test(JSON.stringify(tool.inputSchema?.properties?.action ?? {})),
+        `${tool.name} offers an accept action`
+      );
     }
   });
 

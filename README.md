@@ -22,6 +22,35 @@ consent, and only as far as they allowed.
 | `list_feedback` | open comments and suggested edits |
 | `authenticate`, `sign_out` | signing in. **Local only** — over a connector the client owns OAuth |
 
+### Writing
+
+| tool | what it does |
+| --- | --- |
+| `manage_outline` | add, rename, move, restatus or delete parts of the binder; set a paragraph's plan |
+| `write_draft` | `append` paragraphs, `fill_plan` an unwritten one, or `revise` — which **proposes** |
+| `manage_entity` | create and edit characters, places, notes, and the relationships between them |
+| `manage_cast` | who is in a scene, and in what role |
+| `manage_timeline` | events in the story, or milestones in the writing |
+| `manage_feedback` | comment, reply, resolve |
+
+**Additive writes go straight through; replacing a person's words does not.**
+Adding a paragraph, filling in one that was planned but never written, creating
+a scene — all destroy nothing and are restorable. Changing prose somebody wrote
+creates a **suggested edit** instead: anchored, visible in ezQuill with a diff,
+and accepted or rejected by the writer.
+
+**There is deliberately no tool that accepts a suggestion.** A connector granted
+`ezquill:write` holds the permission to accept as well as to propose, so a
+suggestion an agent could accept itself would be a write with extra steps. The
+safeguard is that the tool does not exist.
+
+Two more things the tools do so a caller cannot get them wrong: `write_draft`
+composes the whole-section reconcile itself (sending only your new paragraphs
+to that endpoint would delete every paragraph you left out), and every writer of
+a JSONB column rebuilds it from the row it read (a partial write to
+`nodes.metadata` replaces the whole blob; a partial write to a timeline event's
+`story` drops its cast).
+
 `search_project` is the one nothing else can offer: a question can match the
 passage that answers it without sharing any words with it.
 
