@@ -38,6 +38,15 @@ export const REMOTE_SAFE = new Set([
   'get_entity',
   'get_timeline',
   'list_feedback',
+  // Writes. Remote-safe for the same reason the reads are: every one is a call
+  // to the ezQuill API, constrained by the consent scopes on the caller's own
+  // token. Nothing here touches this machine.
+  'manage_outline',
+  'write_draft',
+  'manage_entity',
+  'manage_cast',
+  'manage_timeline',
+  'manage_feedback',
 ]);
 
 export const isRemoteSafe = (name) => REMOTE_SAFE.has(name);
