@@ -91,6 +91,20 @@ with "could not determine executable to run", which Claude Code surfaces as
 `CONNECTION_CLOSED` and nothing else. A test pins the naming rule
 (`__tests__/package.test.js`); this line pins the invocation.
 
+**And it will not run from a checkout of THIS repository**, which costs an hour
+the first time. `npx -p @ezquill/mcp-server@x mcp-server`, run from a directory
+whose own `package.json` is named `@ezquill/mcp-server`, finds the package
+already present, skips the install, and exits:
+
+```
+sh: line 1: mcp-server: command not found
+```
+
+An MCP client reports that as `CONNECTION_CLOSED: Connection closed` and
+nothing else. It is the working directory, not the package — a bare
+`package.json` of that name is enough, `node_modules` is irrelevant, and the
+same command works from anywhere else. Run it elsewhere, or use the connector.
+
 **Installing is the whole install.** There is no key to mint and paste. The
 first tool call returns a sign-in link, the person opens it, and the agent
 retries — the same flow a remote connector uses, and better UX than an
@@ -136,36 +150,29 @@ published from a workflow that never installs dependencies.
 /plugin install ezquill@ezquill
 ```
 
-The plugin is a POINTER, not a copy: `plugin/.claude-plugin/plugin.json`
-declares one MCP server that runs the published npm package, pinned to the
-version this repo publishes. A test keeps those two numbers equal, because
-nothing else does — bumping `package.json` without bumping the pin would ship
-a plugin that quietly keeps installing the old version for ever.
+The plugin declares one thing: the **remote connector** at
+`https://mcp.ezquill.com/mcp`. No Node, no npx, no local process, nothing to
+install but the manifest. Claude Code runs OAuth against the connector, which
+is the branded ezQuill sign-in and consent flow.
 
-It lives in `plugin/` rather than at the repository root so the plugin root
-contains the manifest and nothing else. A plugin rooted at this repo would put
-the whole checkout — `src`, `node_modules`, the workflows — into everybody's
-plugin cache to deliver two files.
+It ships no version pin, and that is the improvement. The plugin used to run
+the published npm package pinned to an exact version, which meant three numbers
+had to move together and a test existed only to stop them drifting. A URL has
+no version: a fix reaches every installed plugin on the next deploy rather than
+on the next plugin update.
 
-**If you are developing THIS repository, the plugin's server will not connect,
-and the error says nothing useful.** `npx -p @ezquill/mcp-server@x mcp-server`
-run from a directory whose own `package.json` is named `@ezquill/mcp-server`
-finds the package "already present", skips the install, and fails with
+**It points at production, and a test enforces that.** A plugin shipped
+pointing at `mcp.dev.ezquill.com` would route every installer's manuscript
+through the dev stack — and nothing about it would look wrong, because dev
+answers and the tools work.
 
-```
-sh: line 1: mcp-server: command not found
-```
+The manifest lives in `plugin/` rather than at the repository root so the
+plugin root holds the manifest and nothing else, instead of putting this whole
+checkout into everybody's plugin cache.
 
-which Claude Code reports as `CONNECTION_CLOSED: Connection closed`. It is the
-working directory, not the plugin: the same command works from anywhere else.
-Node_modules has nothing to do with it — a bare `package.json` of that name is
-enough. Use the remote connector while working here, or open Claude Code
-somewhere else.
-
-A future version should declare the REMOTE connector instead —
-`{"type": "http", "url": "https://mcp.ezquill.com/mcp"}` validates in a plugin
-manifest and needs no Node, no npx, no version pin, and no local process. It is
-not done yet only because the prod connector is not deployed.
+**The local stdio path is not gone** — it is just not what the plugin ships.
+It is still the way to run the connector offline, against a dev stack, or as a
+self-hosted process: see "Running it" above, and add it with `claude mcp add`.
 
 ## Publishing
 

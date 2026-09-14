@@ -63,38 +63,33 @@ describe('package.json', () => {
 });
 
 describe('the Claude Code plugin manifest', () => {
-  test('the npx invocation pins the version this repo publishes', () => {
-    // THE failure this test exists for. The plugin installs the connector from
-    // the REGISTRY, pinned, so bumping package.json without bumping this arg
-    // ships a plugin that silently keeps installing the old published version —
-    // for ever, and with no error anywhere. Nothing else in the repo connects
-    // these two numbers.
+  test('it points at the connector, and at PRODUCTION', () => {
+    // The guard that replaced the version-pin tests. A plugin shipped
+    // pointing at the dev connector would route every installer's manuscript
+    // through the dev stack — a dev-shaped mistake with a production-shaped
+    // consequence, and one nothing else here would catch: dev answers, the
+    // tools work, and the writer is simply in the wrong place.
     const server = plugin.mcpServers?.ezquill;
     assert.ok(server, 'the plugin must declare the ezquill MCP server');
-
-    const spec = server.args.find((a) => a.startsWith('@ezquill/mcp-server@'));
-    assert.ok(spec, `no pinned package spec in ${JSON.stringify(server.args)}`);
-    assert.equal(
-      spec,
-      `${pkg.name}@${pkg.version}`,
-      'the plugin pins a different version from the one this repo publishes'
-    );
+    assert.equal(server.type, 'http');
+    assert.equal(server.url, 'https://mcp.ezquill.com/mcp');
   });
 
-  test('it invokes the bin explicitly, not by package name alone', () => {
-    // `npx -p <pkg> <bin>` rather than `npx <pkg>`: the long form keeps working
-    // if a bin is ever renamed, and keeps working against versions already
-    // published. See __tests__/package.test.js's bin test for what the short
-    // form does when nothing matches.
-    const { command, args } = plugin.mcpServers.ezquill;
-    assert.equal(command, 'npx');
-    assert.ok(args.includes('-p'), 'use the explicit `-p <package> <bin>` form');
-    assert.equal(args.at(-1), pkg.name.replace(/^@[^/]+\//, ''));
+  test('it declares no local process', () => {
+    // The point of the remote connector: no Node, no npx, no version pin, and
+    // no working-directory trap. `command` reappearing means somebody has
+    // reintroduced the stdio path here rather than in the README, where the
+    // `claude mcp add` route lives.
+    const server = plugin.mcpServers.ezquill;
+    assert.equal(server.command, undefined);
+    assert.equal(server.args, undefined);
   });
 
-  test('the three versions do not drift', () => {
-    assert.equal(plugin.version, pkg.version, 'plugin.json version');
-    assert.equal(marketplace.plugins[0].version, pkg.version, 'marketplace entry version');
-    assert.equal(marketplace.plugins[0].name, plugin.name, 'marketplace entry name');
+  test('the marketplace entry does not drift from the plugin', () => {
+    // These two are the plugin's OWN version and are deliberately no longer
+    // tied to package.json — the plugin ships a URL, not a package, so the
+    // npm version has nothing to say about it.
+    assert.equal(marketplace.plugins[0].version, plugin.version, 'version');
+    assert.equal(marketplace.plugins[0].name, plugin.name, 'name');
   });
 });

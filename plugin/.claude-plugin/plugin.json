@@ -2,7 +2,7 @@
   "name": "ezquill",
   "displayName": "ezQuill",
   "description": "Read and write a writer's manuscript, story world and timeline in ezQuill.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": {
     "name": "EasyModeOnly",
     "url": "https://github.com/EasyModeOnly"
@@ -13,8 +13,8 @@
   "keywords": ["writing", "manuscript", "fiction", "story", "mcp"],
   "mcpServers": {
     "ezquill": {
-      "command": "npx",
-      "args": ["-y", "-p", "@ezquill/mcp-server@0.1.0", "mcp-server"]
+      "type": "http",
+      "url": "https://mcp.ezquill.com/mcp"
     }
   }
 }
