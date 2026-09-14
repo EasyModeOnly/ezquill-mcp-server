@@ -12,7 +12,7 @@
  */
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { createServer } from './lib/create-server.js';
-import { withRequest } from './lib/request-context.js';
+import { setDefaultRequest } from './lib/request-context.js';
 import { baseUrl } from './lib/api.js';
 
 async function main() {
@@ -36,10 +36,13 @@ async function main() {
   const server = createServer({ surface: 'local' });
   const transport = new StdioServerTransport();
 
-  // The whole session runs inside one request context. On stdio there is
-  // exactly one caller, so a per-connection credential is per-request; the
-  // remote transport is where this genuinely varies per call.
-  await withRequest({ token }, () => server.connect(transport));
+  // A process-wide credential rather than a request store, because the store
+  // would not survive: the transport reads stdin through an event listener,
+  // and AsyncLocalStorage does not cross an EventEmitter. On stdio there is
+  // exactly one caller, so the process credential IS the request credential.
+  // See setDefaultRequest.
+  setDefaultRequest({ token });
+  await server.connect(transport);
 }
 
 main().catch((err) => {
