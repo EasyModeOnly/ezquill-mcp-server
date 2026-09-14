@@ -75,6 +75,22 @@ describe('the Claude Code plugin manifest', () => {
     assert.equal(server.url, 'https://mcp.ezquill.com/mcp');
   });
 
+  test('it carries the pre-registered OAuth client id', () => {
+    // Without this the plugin cannot authenticate AT ALL, and the error names
+    // neither the plugin nor the cause:
+    //
+    //   Dynamic Client Registration rejected (HTTP 403): insufficient_scope
+    //   Policy 'Trusted Hosts' rejected request to client-registration service
+    //
+    // A client with no client_id tries to register one dynamically, and the
+    // ezquill realm refuses DCR on purpose — it holds customer identities, and
+    // allowlisting Anthropic's egress range would admit registration from
+    // anyone with a claude.ai account. The realm's design assumes the client id
+    // is SUPPLIED; this is where a plugin supplies it.
+    const { oauth } = plugin.mcpServers.ezquill;
+    assert.equal(oauth?.clientId, 'ezquill-mcp');
+  });
+
   test('it declares no local process', () => {
     // The point of the remote connector: no Node, no npx, no version pin, and
     // no working-directory trap. `command` reappearing means somebody has

@@ -161,6 +161,29 @@ had to move together and a test existed only to stop them drifting. A URL has
 no version: a fix reaches every installed plugin on the next deploy rather than
 on the next plugin update.
 
+**It carries the pre-registered OAuth client id, and without that it cannot
+authenticate at all.** An MCP client with no client id tries Dynamic Client
+Registration, and the ezquill realm refuses:
+
+```
+Dynamic Client Registration rejected (HTTP 403): insufficient_scope
+Policy 'Trusted Hosts' rejected request to client-registration service
+```
+
+The refusal is deliberate — the realm holds customer identities, and
+allowlisting Anthropic's published egress range would admit registration from
+anyone with a claude.ai account, because that range carries all outbound tool
+traffic. The design assumes the client id is SUPPLIED, and `oauth.clientId` in
+the manifest is where a plugin supplies it. The same value goes in the
+`--client-id` flag when adding the server by hand:
+
+```
+claude mcp add --transport http --client-id ezquill-mcp ezquill https://mcp.ezquill.com/mcp
+```
+
+It is a public client with no secret, so publishing it costs nothing: it names
+which pre-registered client to use and opens nothing on its own.
+
 **It points at production, and a test enforces that.** A plugin shipped
 pointing at `mcp.dev.ezquill.com` would route every installer's manuscript
 through the dev stack — and nothing about it would look wrong, because dev
