@@ -26,6 +26,7 @@ consent, and only as far as they allowed.
 
 | tool | what it does |
 | --- | --- |
+| `create_project` | start a project of any writing type, with its parts, chapters or posts — only when the writer asks |
 | `manage_outline` | add, rename, move, restatus or delete parts of the binder; set a paragraph's plan |
 | `write_draft` | `append` paragraphs, `fill_plan` an unwritten one, or `revise` — which **proposes** |
 | `manage_entity` | create and edit characters, places, notes, and the relationships between them |

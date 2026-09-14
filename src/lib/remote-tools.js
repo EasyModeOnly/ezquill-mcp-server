@@ -41,6 +41,10 @@ export const REMOTE_SAFE = new Set([
   // Writes. Remote-safe for the same reason the reads are: every one is a call
   // to the ezQuill API, constrained by the consent scopes on the caller's own
   // token. Nothing here touches this machine.
+  // create_project calls POST /projects and the nodes batch, nothing else. It
+  // needs ezquill:write like every other write, which the API enforces on the
+  // method (ezquill#185 is why that gate exists) — the tool adds no path around it.
+  'create_project',
   'manage_outline',
   'write_draft',
   'manage_entity',

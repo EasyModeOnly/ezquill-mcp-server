@@ -37,6 +37,8 @@ Changing things:
 - Creating a character is cheap to do and expensive to undo: it joins the cast
   lists, the timeline filters and every future prompt, and will look like
   something the writer created. Ask first.
+- A new project stays on the writer's dashboard for good. Create one only when
+  they asked, after confirming its title, writing type and structure.
 
 Working with a writer:
 - This is somebody's book. Prefer answering questions and pointing at scenes

@@ -28,6 +28,22 @@ export const Code = {
   NOT_FOUND: 'NOT_FOUND',
   /** Somebody else changed the prose since it was read. */
   STALE_CONTENT: 'STALE_CONTENT',
+  /**
+   * A node type this project's writing type has no word for.
+   *
+   * Refused HERE because the API will not refuse it: `node_type` is open TEXT,
+   * so an invented level is stored and rendered as though it were real. The
+   * detail carries the allowed levels, so the agent can correct itself.
+   */
+  UNKNOWN_NODE_TYPE: 'UNKNOWN_NODE_TYPE',
+  /**
+   * The project was created and its structure was not.
+   *
+   * Its own code because the obvious retry — calling create_project again —
+   * makes a SECOND project. The detail carries the projectId so the structure
+   * can be added to the one that exists.
+   */
+  STRUCTURE_FAILED: 'STRUCTURE_FAILED',
   /** Anything the API refused that does not fit above. */
   REQUEST_FAILED: 'REQUEST_FAILED',
 };

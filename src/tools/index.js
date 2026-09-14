@@ -10,6 +10,7 @@ import { tools as outline } from './outline.js';
 import { tools as storyWorld } from './story-world.js';
 import { tools as timeline } from './timeline.js';
 import { tools as feedback } from './feedback.js';
+import { tools as writeProjects } from './write-projects.js';
 import { tools as writeOutline } from './write-outline.js';
 import { tools as writeDraft } from './write-draft.js';
 import { tools as writeStoryWorld } from './write-story-world.js';
@@ -27,6 +28,9 @@ export const TOOLS = [
   // Writes after reads, because that is the order the work happens in: an
   // agent that changes a manuscript it has not read is the thing this surface
   // is shaped to discourage.
+  // Creating a project first among the writes: it is the one that makes the
+  // others possible for somebody who has nothing yet.
+  ...writeProjects,
   ...writeOutline,
   ...writeDraft,
   ...writeStoryWorld,

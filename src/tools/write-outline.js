@@ -16,6 +16,7 @@
 import { randomUUID } from 'node:crypto';
 import { call } from '../lib/api.js';
 import { ToolError, Code } from '../lib/errors.js';
+import { levelsFor } from '../lib/writing-types.js';
 
 export const tools = [
   {
@@ -47,8 +48,9 @@ export const tools = [
               nodeType: {
                 type: 'string',
                 description:
-                  'chapter, scene, part, section, act, poem, post… Use get_outline to see ' +
-                  'what this project already uses; the level below a chapter is usually a scene.',
+                  "A level from the project's writing type: chapter, scene, part, section, act, " +
+                  'poem, post… An unknown level is refused with the allowed list. Use ' +
+                  'get_outline to see what this project already uses.',
               },
               parentId: {
                 type: 'string',
@@ -90,6 +92,27 @@ export const tools = [
           const wanted = args.nodes ?? [];
           if (wanted.length === 0) {
             throw new ToolError(Code.REQUEST_FAILED, 'add needs at least one entry in `nodes`.');
+          }
+
+          // A node type is checked against the project's writing type, because
+          // the API stores any string and an invented level renders as a real
+          // one. Omitting it stays allowed, as before: the API stores `generic`,
+          // which reads as "untyped" rather than as a wrong level, so it is not
+          // the silent failure this guards. Only fetched when a type was given.
+          const typed = wanted.filter((n) => n.nodeType);
+          if (typed.length > 0) {
+            const project = await call(`/projects/${projectId}`);
+            const levels = await levelsFor(project.writingType);
+            const allowed = levels.map((l) => l.key);
+            const unknown = typed.find((n) => !allowed.includes(n.nodeType));
+            if (unknown) {
+              throw new ToolError(
+                Code.UNKNOWN_NODE_TYPE,
+                `"${unknown.nodeType}" is not a level of a ${project.writingType} project. ` +
+                  `Use one of: ${allowed.join(', ')}.`,
+                { writingType: project.writingType, nodeType: unknown.nodeType, allowed }
+              );
+            }
           }
 
           // The CLIENT mints the ids, which is what the batch endpoint expects:
