@@ -80,6 +80,17 @@ npx -y -p @ezquill/mcp-server mcp-server
 PORT=8080 node src/http.js
 ```
 
+**Do not shorten that to `npx @ezquill/mcp-server`, and do not "simplify" it
+later.** npx resolves a multi-bin package only when one bin matches the
+unscoped name; this package has three bins and does keep one called
+`mcp-server`, so the short form happens to work today. The explicit `-p
+<package> <bin>` form keeps working if a bin is ever renamed, and it works
+against versions already published — which the short form would not, silently.
+ezmodo shipped a package with three bins and none matching, and `npx` exited 1
+with "could not determine executable to run", which Claude Code surfaces as
+`CONNECTION_CLOSED` and nothing else. A test pins the naming rule
+(`__tests__/package.test.js`); this line pins the invocation.
+
 **Installing is the whole install.** There is no key to mint and paste. The
 first tool call returns a sign-in link, the person opens it, and the agent
 retries — the same flow a remote connector uses, and better UX than an
@@ -117,3 +128,49 @@ npm test        # node:test, no framework
 
 There is no build step. That is deliberate: it is what lets the package be
 published from a workflow that never installs dependencies.
+
+## Publishing
+
+`.github/workflows/publish.yml` runs on every push to `main` and decides what
+to do by **asking the registry** — `npm view <name>@<version>` — rather than by
+diffing `HEAD` against `HEAD^`. Fixing a broken publish necessarily adds a
+commit, and adding a commit is exactly what makes those two carry the same
+version: a diff-based workflow skips the fix and a re-run replays the bug. So
+most merges reach this workflow and correctly do nothing. Bump the version in
+`package.json` and it publishes; that is the entire release process.
+
+It uses **npm Trusted Publishing** — an OIDC token minted per run, no npm token
+stored in this repository — and it **stages** rather than publishes:
+
+```bash
+npm stage list @ezquill/mcp-server
+npm stage approve <stage-id>     # takes 2FA; this is what makes it installable
+npm stage reject  <stage-id>
+```
+
+The approval gate is deliberately outside GitHub. A GitHub environment approval
+sits in the same trust domain as the token and the workflow doing the
+publishing, so whoever compromises one can usually satisfy the other; npm's 2FA
+approval is the one gate a compromised GitHub credential cannot pass.
+
+**The consequence to plan around: the version in `main` is not installable
+until somebody approves it.** Anything that checks whether the pinned version
+is published must *warn*, not fail — a red run for a gap that is expected
+trains people to ignore red.
+
+### The first publish is manual, once
+
+A trusted publisher is configured in a package's settings on npmjs.com, and a
+package has to exist to have settings. So the bootstrap is:
+
+1. `npm publish` once, by hand, from a maintainer account in the `ezquill` org.
+   `publishConfig.access` is `public`, so no flag is needed — without it a
+   scoped package defaults to restricted and fails with a 402 that reads like a
+   billing problem.
+2. On npmjs.com, add a trusted publisher for the package naming this repository
+   and `publish.yml`.
+3. Optionally restrict token-based publishing entirely, which leaves the
+   trusted publisher as the only way in.
+
+After that this workflow owns every release and nothing is published by hand
+again.

@@ -1,0 +1,123 @@
+name: Publish to npm
+
+# Runs on every push to main, and the DECISION is made by asking the registry.
+#
+# Not on a tag, and not dispatch-only, for the reason ezmodo paid a bug task
+# for: fixing a broken publish necessarily adds a commit, and adding a commit
+# is exactly what makes HEAD and HEAD^ carry the same version — so a workflow
+# that diffs them skips the fix, while re-running the old job replays the
+# commit that still contains the bug. `npm view` cannot get that wrong: it asks
+# the only system that knows whether this version is out there.
+#
+# Consequence: this runs on every merge and usually decides to do nothing. That
+# is the point. A no-op is cheap; a publish path that is only exercised on
+# release day is not.
+#
+# ── Trusted Publishing ────────────────────────────────────────────────────────
+# No npm token. The job mints an OIDC token that npm trades for publish rights,
+# so there is no long-lived credential in this repo to steal. It requires:
+#
+#   * npm >= 11.5.1 and Node >= 22.14.0 (setup-node's npm is older, hence the
+#     explicit upgrade below)
+#   * `id-token: write` on this job
+#   * a trusted publisher configured in the package's settings on npmjs.com,
+#     naming this repository and THIS workflow file by name
+#
+# The last one is why the FIRST publish is manual: a trusted publisher is
+# configured on a package, and the package has to exist to have settings. See
+# README.md → Publishing.
+#
+# ── Staged, not direct ────────────────────────────────────────────────────────
+# `npm stage publish` uploads the version and stops. It is not installable until
+# a maintainer approves it (`npm stage approve <id>`, or on npmjs.com), which
+# takes 2FA.
+#
+# That gate is the point, and it is a security property rather than a process
+# one: a GitHub environment approval lives in the same trust domain as the token
+# and the workflow doing the publishing, so whoever can compromise one can
+# usually satisfy the other. npm's 2FA approval is the one gate a compromised
+# GitHub credential cannot pass.
+#
+# The cost, which anyone pinning this package must know: the version bump
+# reaches main BEFORE the version is installable. Anything checking "is the
+# pinned version published" must warn rather than fail — a red run for a gap
+# that is expected trains people to ignore red.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+          cache: npm
+
+      # setup-node pins the npm that shipped with the Node release, which is
+      # older than trusted publishing needs. Upgraded explicitly so the failure
+      # mode is a version check here rather than an authentication error at
+      # publish time that reads like a permissions problem.
+      - run: npm install -g npm@latest
+
+      - run: npm ci
+
+      # Never stage something that failed. CI runs the same suite on this
+      # commit, but a publish that trusts another workflow's result is a
+      # publish that goes out when somebody reorders the graph.
+      - run: npm test
+
+      - id: decide
+        name: Ask the registry whether this version exists
+        run: |
+          set -euo pipefail
+          NAME=$(node -p "require('./package.json').name")
+          VERSION=$(node -p "require('./package.json').version")
+          echo "name=$NAME"       >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+          # `|| true` because a package that does not exist at all 404s, and
+          # "never published" must mean PUBLISH, not "error". Without it the
+          # very first run of this workflow fails on the happy path.
+          PUBLISHED=$(npm view "$NAME@$VERSION" version 2>/dev/null || true)
+
+          if [ -n "$PUBLISHED" ]; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::$NAME@$VERSION is already on the registry — nothing to do."
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::$NAME@$VERSION is not on the registry — staging it."
+          fi
+
+      # A staged version is NOT live. It waits for `npm stage approve`, which
+      # takes 2FA, and that is deliberate — see the header.
+      - name: Stage the release
+        if: steps.decide.outputs.publish == 'true'
+        run: npm stage publish
+
+      - name: Say what happens next
+        if: steps.decide.outputs.publish == 'true'
+        run: |
+          {
+            echo "### Staged \`${{ steps.decide.outputs.name }}@${{ steps.decide.outputs.version }}\`"
+            echo
+            echo "It is **not installable yet.** Approve it with 2FA:"
+            echo
+            echo '```'
+            echo "npm stage list ${{ steps.decide.outputs.name }}"
+            echo "npm stage approve <stage-id>"
+            echo '```'
+            echo
+            echo "Or approve it on npmjs.com. \`npm stage reject <stage-id>\` discards it."
+          } >> "$GITHUB_STEP_SUMMARY"
