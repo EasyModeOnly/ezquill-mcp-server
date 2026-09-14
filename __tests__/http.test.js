@@ -73,8 +73,26 @@ describe('the remote transport', () => {
     const doc = await res.json();
     assert.match(doc.resource, /\/mcp$/);
     assert.ok(Array.isArray(doc.authorization_servers) && doc.authorization_servers.length === 1);
-    assert.deepEqual(doc.scopes_supported, ['ezquill:read', 'ezquill:write', 'ezquill:delete']);
+    assert.deepEqual(doc.scopes_supported, ['ezquill:read', 'ezquill:write']);
     assert.deepEqual(doc.bearer_methods_supported, ['header']);
+  });
+
+  test('the remote sign-in never asks for delete (#323)', async () => {
+    // A client requests the challenge's `scope`, else every scope in
+    // scopes_supported. Either one naming delete puts it on the consent
+    // screen, where declining it means not connecting at all.
+    const res = await fetch(`${base}/mcp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}',
+    });
+    const challenge = res.headers.get('www-authenticate') ?? '';
+    const scope = challenge.match(/scope="([^"]+)"/)?.[1];
+    assert.ok(scope, `no scope in ${challenge}`);
+    assert.deepEqual(scope.split(' ').sort(), ['ezquill:read', 'ezquill:write', 'openid']);
+
+    const doc = await (await fetch(`${base}/.well-known/oauth-protected-resource/mcp`)).json();
+    assert.ok(!doc.scopes_supported.includes('ezquill:delete'));
   });
 
   test('the 401 challenge points at a path this server actually answers', async () => {
