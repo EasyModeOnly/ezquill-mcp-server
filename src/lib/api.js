@@ -7,7 +7,7 @@
  * the remote one puts the caller's forwarded bearer token there, and nothing
  * downstream can tell the difference or needs to.
  */
-import { currentRequest } from './request-context.js';
+import { resolveCredential } from './credentials.js';
 import { Code, ToolError, codeForStatus } from './errors.js';
 
 const DEFAULT_BASE_URL = 'https://api.ezquill.com';
@@ -23,11 +23,13 @@ export function baseUrl() {
  * @param {{method?: string, body?: unknown, query?: Record<string, unknown>}} [opts]
  */
 export async function call(path, opts = {}) {
-  const { token } = currentRequest();
+  // The ONE place a credential is read. Everything else — every tool, every
+  // handler — stays unaware that one exists.
+  const { token } = await resolveCredential();
   if (!token) {
     throw new ToolError(
       Code.NOT_AUTHENTICATED,
-      'Not signed in to ezQuill. Sign in and try again.'
+      'Not signed in to ezQuill.'
     );
   }
 

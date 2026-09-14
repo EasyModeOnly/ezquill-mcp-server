@@ -16,6 +16,8 @@ import { TOOLS } from '../tools/index.js';
 import { getInstructions } from './instructions.js';
 import { isRemoteSafe } from './remote-tools.js';
 import { ToolError, Code } from './errors.js';
+import { hasExplicitCredential } from './credentials.js';
+import { startSignIn } from './oauth.js';
 
 export const SERVER_NAME = 'ezquill-mcp-server';
 export const SERVER_VERSION = '0.1.0';
@@ -63,6 +65,10 @@ export function createServer({ surface = 'local' } = {}) {
       const result = await tool.handler(request.params.arguments ?? {});
       return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
     } catch (err) {
+      if (surface === 'local' && needsSignIn(err)) {
+        const prompt = await signInPrompt(err);
+        if (prompt) return prompt;
+      }
       return errorResult(err);
     }
   });
@@ -89,4 +95,68 @@ function errorResult(err) {
     isError: true,
     content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }],
   };
+}
+
+/**
+ * Whether a failure means "sign in", funnelled at the SINGLE dispatch point so
+ * no tool can be missed and none can drift.
+ *
+ * 401 is included because a credential that WAS valid can stop being one, and
+ * that is indistinguishable from never having had one from the caller's side.
+ *
+ * 403 is DELIBERATELY EXCLUDED. It means signed in but not permitted — a scope
+ * that was never granted, or a project this person cannot reach. Sending
+ * somebody back through a sign-in that cannot fix it is worse than saying
+ * nothing, because it hides the real reason behind a familiar-looking prompt.
+ */
+function needsSignIn(err) {
+  return err instanceof ToolError && err.code === Code.NOT_AUTHENTICATED;
+}
+
+/**
+ * Start the sign-in and hand the url back as a RESULT.
+ *
+ * Two things here are load-bearing and were both wrong in ezmodo's first
+ * version:
+ *
+ *   - it starts the flow ITSELF rather than telling the agent to call another
+ *     tool. Two hops means the person waits through an exchange that says
+ *     nothing to them.
+ *   - it returns a PLAIN result, not an error. A client that treats isError as
+ *     a failure would otherwise swallow the link, which defeats the whole
+ *     point: the tool result is the only channel that reaches a person, since
+ *     stdout is the protocol and stderr is a log nobody opens.
+ */
+async function signInPrompt(err) {
+  // An explicit credential outranks a cached sign-in, so a browser flow could
+  // not take effect. Report the real problem instead of offering an errand
+  // that cannot work.
+  if (hasExplicitCredential()) return null;
+
+  try {
+    const { authUrl, browserOpened } = await startSignIn();
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(
+            {
+              status: 'sign_in_required',
+              message:
+                'Not signed in to ezQuill. Ask the person to open this link, then try again.',
+              authUrl,
+              browserOpened,
+              originalError: err.code,
+            },
+            null,
+            2
+          ),
+        },
+      ],
+    };
+  } catch {
+    // If the sign-in cannot even be started — no network, discovery down — the
+    // ordinary error is more honest than a link that goes nowhere.
+    return null;
+  }
 }

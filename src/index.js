@@ -12,37 +12,29 @@
  */
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { createServer } from './lib/create-server.js';
-import { setDefaultRequest } from './lib/request-context.js';
 import { baseUrl } from './lib/api.js';
+import { resolveCredential } from './lib/credentials.js';
 
 async function main() {
-  const token = process.env.EZQUILL_TOKEN ?? '';
-
   // Say WHICH credential is in use, on stderr, at startup. A server that
   // silently authenticates as whoever happens to be configured, with no way to
-  // tell, is worse than one that fails.
-  process.stderr.write(
-    `[ezquill-mcp] api=${baseUrl()} credential=${token ? 'EZQUILL_TOKEN' : 'none'}\n`
-  );
-  if (!token) {
-    // Not fatal: the tools answer NOT_AUTHENTICATED as a tool result, which is
-    // the only channel that reaches the person. Dying here would surface to the
-    // client as an opaque CONNECTION_CLOSED instead.
+  // tell, is worse than one that fails outright.
+  const { source } = await resolveCredential().catch(() => ({ source: 'none' }));
+  process.stderr.write(`[ezquill-mcp] api=${baseUrl()} credential=${source}\n`);
+
+  if (source === 'none') {
+    // Not fatal, deliberately. The tools answer NOT_AUTHENTICATED as a tool
+    // RESULT — which starts a sign-in and hands back a link, the only channel
+    // that reaches a person. Dying here would surface to the client as an
+    // opaque CONNECTION_CLOSED, which is how ezmodo's clearest error message
+    // became invisible.
     process.stderr.write(
-      '[ezquill-mcp] no credential set — tools will report NOT_AUTHENTICATED until one is.\n'
+      '[ezquill-mcp] not signed in — the first tool call will return a sign-in link.\n'
     );
   }
 
   const server = createServer({ surface: 'local' });
-  const transport = new StdioServerTransport();
-
-  // A process-wide credential rather than a request store, because the store
-  // would not survive: the transport reads stdin through an event listener,
-  // and AsyncLocalStorage does not cross an EventEmitter. On stdio there is
-  // exactly one caller, so the process credential IS the request credential.
-  // See setDefaultRequest.
-  setDefaultRequest({ token });
-  await server.connect(transport);
+  await server.connect(new StdioServerTransport());
 }
 
 main().catch((err) => {
