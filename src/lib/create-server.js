@@ -6,6 +6,8 @@
  * exactly the failure the allowlist below exists to prevent, so building it
  * twice would be self-defeating.
  */
+import { readFileSync } from 'node:fs';
+
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import {
   CallToolRequestSchema,
@@ -20,7 +22,23 @@ import { hasExplicitCredential } from './credentials.js';
 import { startSignIn } from './oauth.js';
 
 export const SERVER_NAME = 'ezquill-mcp-server';
-export const SERVER_VERSION = '0.1.0';
+
+/**
+ * Read from package.json rather than typed here.
+ *
+ * It was a literal, and it had already drifted by the first release: 0.1.1
+ * published from this repo and introduced itself over MCP as 0.1.0. Nothing
+ * catches that — the package is correct, the tarball is correct, the server
+ * runs, and the only symptom is that `serverInfo.version` lies to whoever is
+ * trying to work out which build they are talking to. Which is exactly when
+ * somebody reads it.
+ *
+ * package.json is always in the tarball regardless of `files`, so this
+ * resolves for an installed copy as well as from a checkout.
+ */
+export const SERVER_VERSION = JSON.parse(
+  readFileSync(new URL('../../package.json', import.meta.url), 'utf8')
+).version;
 
 /**
  * @param {{surface?: 'local'|'remote'}} [options]
