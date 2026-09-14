@@ -208,6 +208,18 @@ version: a diff-based workflow skips the fix and a re-run replays the bug. So
 most merges reach this workflow and correctly do nothing. Bump the version in
 `package.json` and it publishes; that is the entire release process.
 
+**The same bump deploys the remote connector** — the Cloud Run service every
+plugin and claude.ai connection talks to — to dev, then to prod once dev has
+deployed and verified. It is keyed on the registry decision, not on the npm
+approval below, since the remote connector is not installed from npm. So a fix
+that should reach plugin users needs a version bump, exactly as it does for npm
+users; a merge without one ships nowhere.
+
+If a deploy job fails after the version was staged, the next merge will find the
+version already published and deploy nothing. Re-run the failed jobs in that
+run, or dispatch **Deploy connector** by hand, which is also how to redeploy
+without a release.
+
 It uses **npm Trusted Publishing** — an OIDC token minted per run, no npm token
 stored in this repository — and it **stages** rather than publishes:
 
