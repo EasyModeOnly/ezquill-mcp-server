@@ -82,6 +82,17 @@ describe('package.json', () => {
   });
 });
 
+describe('the server it introduces itself as', () => {
+  test('serverInfo.version is the version that was published', async () => {
+    // A literal here drifted on the very first release — 0.1.1 shipped and
+    // announced 0.1.0. Nothing else catches it: the package is right, the
+    // tarball is right, the server runs, and the only casualty is somebody
+    // trying to work out which build they are talking to.
+    const { SERVER_VERSION } = await import('../src/lib/create-server.js');
+    assert.equal(SERVER_VERSION, pkg.version);
+  });
+});
+
 describe('the Claude Code plugin manifest', () => {
   test('it points at the connector, and at PRODUCTION', () => {
     // The guard that replaced the version-pin tests. A plugin shipped
