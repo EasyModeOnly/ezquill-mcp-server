@@ -1,0 +1,110 @@
+name: Deploy connector
+
+# Manual, and per environment.
+#
+# Not on push to main, deliberately. This service is reachable from claude.ai
+# by anybody who has connected it, so a deploy is a decision rather than a
+# consequence of merging — the same reason ezQuill's own API and web deploys
+# are dispatch-only.
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Which environment to deploy
+        required: true
+        type: choice
+        options: [dev, prod]
+
+env:
+  REGION: us-central1
+  # The emo-infra-managed shared registry, the same one ezQuill's API and web
+  # images use. NOT easymode-artifacts, which is deprecated.
+  AR_REGISTRY: us-docker.pkg.dev/easymode-infra/images
+  IMAGE_NAME: ezquill-mcp
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: env
+        run: |
+          echo "project=ezquill-${{ inputs.environment }}" >> "$GITHUB_OUTPUT"
+          echo "service=ezquill-mcp-${{ inputs.environment }}" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      # PREREQUISITE, and it is not a code change: the Workload Identity pool
+      # must trust THIS repository. It was configured for EasyModeOnly/ezquill,
+      # and a provider scoped to that repo will reject a token minted here with
+      # an error about the subject rather than about the repository, which is a
+      # confusing place to start looking.
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - run: gcloud auth configure-docker us-docker.pkg.dev --quiet
+
+      - name: Build and push
+        run: |
+          docker build \
+            -t "${AR_REGISTRY}/${IMAGE_NAME}:${{ steps.env.outputs.sha }}" \
+            -t "${AR_REGISTRY}/${IMAGE_NAME}:latest" .
+          docker push "${AR_REGISTRY}/${IMAGE_NAME}:${{ steps.env.outputs.sha }}"
+          docker push "${AR_REGISTRY}/${IMAGE_NAME}:latest"
+
+      # The service is created by Terraform behind `deploy_mcp`, which defaults
+      # to false. Until that is flipped there is nothing to deploy to.
+      #
+      # This FAILS rather than skips, because the run was dispatched by a person
+      # who asked for a deploy — telling them nothing happened is the point. The
+      # opposite rule applies to checks that run on every push, where a red
+      # "not enabled here" is how people learn to ignore red.
+      - name: Require the service to exist
+        run: |
+          if ! gcloud run services describe "${{ steps.env.outputs.service }}" \
+               --region "$REGION" --project "${{ steps.env.outputs.project }}" >/dev/null 2>&1; then
+            echo "::error::${{ steps.env.outputs.service }} does not exist."
+            echo "::error::Set deploy_mcp = true in terraform/${{ inputs.environment }}.tfvars and apply first."
+            exit 1
+          fi
+
+      - name: Deploy
+        run: |
+          gcloud run deploy "${{ steps.env.outputs.service }}" \
+            --image "${AR_REGISTRY}/${IMAGE_NAME}:${{ steps.env.outputs.sha }}" \
+            --region "$REGION" --project "${{ steps.env.outputs.project }}" --quiet
+
+      # Verify the CONTRACT, not just that something answered. A 200 from
+      # /health only proves a container started; these three prove the thing a
+      # connector actually depends on.
+      - name: Verify
+        run: |
+          url=$(gcloud run services describe "${{ steps.env.outputs.service }}" \
+                --region "$REGION" --project "${{ steps.env.outputs.project }}" \
+                --format='value(status.url)')
+          echo "deployed: $url"
+
+          code=$(curl -s -o /dev/null -w '%{http_code}' "$url/health")
+          [ "$code" = "200" ] || { echo "::error::/health returned $code"; exit 1; }
+
+          # Unauthenticated POST must be refused, and must say where to get a
+          # token. A connector that 200s here is one that never asks for auth.
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+                 -H 'Content-Type: application/json' -d '{}' "$url/mcp")
+          [ "$code" = "401" ] || { echo "::error::POST /mcp returned $code, want 401"; exit 1; }
+
+          # The RFC 9728 document, which a client reads BEFORE it has a token.
+          # If this is unreachable the handshake fails before anyone sees a
+          # consent screen, with an error that says nothing about routing.
+          code=$(curl -s -o /dev/null -w '%{http_code}' "$url/.well-known/oauth-protected-resource/mcp")
+          [ "$code" = "200" ] || { echo "::error::protected-resource metadata returned $code"; exit 1; }
+
+          echo "health, 401 challenge and protected-resource metadata all good"

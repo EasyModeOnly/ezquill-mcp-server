@@ -32,6 +32,7 @@ import { withRequest } from './lib/request-context.js';
 const PORT = Number(process.env.PORT || 8080);
 const MCP_PATH = process.env.MCP_PATH || '/mcp';
 const MAX_BODY_BYTES = 4 << 20;
+const ISSUER = (process.env.EZQUILL_ISSUER || 'https://auth.ezquill.com/realms/ezquill').replace(/\/+$/, '');
 
 /** RFC 6750: `Authorization: Bearer <token>`, scheme compared case-insensitively. */
 function bearerToken(req) {
@@ -67,6 +68,26 @@ const http = createHttpServer(async (req, res) => {
   // marked unhealthy, and it makes a 404 from an ingress rule indistinguishable
   // from a missing route.
   if (url.pathname === '/health') return send(res, 200, { status: 'ok' });
+
+  // RFC 9728 protected-resource metadata: how a client discovers WHICH
+  // authorization server guards this resource, before it has any token.
+  //
+  // The path is the domain root plus the resource path — NOT the resource path
+  // plus a suffix. `/mcp` publishes at `/.well-known/oauth-protected-resource/mcp`.
+  //
+  // ezmodo's hard-won lesson here was that a load balancer needs a SECOND
+  // url-map rule for this, and that it is the one everybody forgets. It does
+  // not apply to ezQuill: the services are exposed by Cloud Run DOMAIN
+  // MAPPINGS rather than through a shared GCLB, so this path is on the same
+  // host as /mcp and reaches the same container with no routing rule at all.
+  // Worth saying out loud, because somebody arriving with that lesson will go
+  // looking for a url-map that does not exist.
+  //
+  // Unauthenticated on purpose: a client reads it precisely because it has no
+  // credential yet.
+  if (url.pathname === metadataPath()) {
+    return send(res, 200, protectedResourceMetadata(req));
+  }
 
   if (url.pathname !== MCP_PATH) return send(res, 404, { error: 'not found' });
 
@@ -120,14 +141,35 @@ const http = createHttpServer(async (req, res) => {
   }
 });
 
+const metadataPath = () => `/.well-known/oauth-protected-resource${MCP_PATH}`;
+
+/**
+ * What a client needs in order to go and get a token.
+ *
+ * `scopes_supported` lists what this resource UNDERSTANDS, which is not the
+ * same as what any given token was granted — a client asks for a subset and a
+ * person consents to a subset of that. Advertising delete here is correct and
+ * is not the same as requesting it.
+ */
+function protectedResourceMetadata(req) {
+  const host = req.headers.host ?? `localhost:${PORT}`;
+  const proto = req.headers['x-forwarded-proto'] ?? 'https';
+
+  return {
+    resource: `${proto}://${host}${MCP_PATH}`,
+    authorization_servers: [ISSUER],
+    scopes_supported: ['ezquill:read', 'ezquill:write', 'ezquill:delete'],
+    bearer_methods_supported: ['header'],
+    resource_documentation: 'https://github.com/EasyModeOnly/ezquill-mcp-server',
+  };
+}
+
 function resourceMetadataUrl(req) {
   const host = req.headers.host ?? `localhost:${PORT}`;
   const proto = req.headers['x-forwarded-proto'] ?? 'https';
-  // RFC 9728 puts this at the DOMAIN ROOT with the resource path appended —
-  // NOT under the resource path itself. Routing only /mcp and forgetting this
-  // second path makes the handshake fail before a person sees a consent
-  // screen, with an error that says nothing about routing.
-  return `${proto}://${host}/.well-known/oauth-protected-resource${MCP_PATH}`;
+  // Built from the same metadataPath() the route uses, so the challenge cannot
+  // point somewhere this server does not answer.
+  return `${proto}://${host}${metadataPath()}`;
 }
 
 http.listen(PORT, () => {

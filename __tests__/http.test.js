@@ -64,6 +64,36 @@ describe('the remote transport', () => {
     assert.equal((await res.json()).status, 'ok');
   });
 
+  test('serves RFC 9728 metadata at the domain root, unauthenticated', async () => {
+    // A client reads this precisely because it has no credential yet, so a 401
+    // here would make the handshake unresolvable.
+    const res = await fetch(`${base}/.well-known/oauth-protected-resource/mcp`);
+    assert.equal(res.status, 200);
+
+    const doc = await res.json();
+    assert.match(doc.resource, /\/mcp$/);
+    assert.ok(Array.isArray(doc.authorization_servers) && doc.authorization_servers.length === 1);
+    assert.deepEqual(doc.scopes_supported, ['ezquill:read', 'ezquill:write', 'ezquill:delete']);
+    assert.deepEqual(doc.bearer_methods_supported, ['header']);
+  });
+
+  test('the 401 challenge points at a path this server actually answers', async () => {
+    // The failure this prevents is silent: a challenge naming a path nobody
+    // serves makes the handshake fail before a person ever sees a consent
+    // screen, with an error that says nothing about routing.
+    const res = await fetch(`${base}/mcp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}',
+    });
+    const challenge = res.headers.get('www-authenticate') ?? '';
+    const advertised = challenge.match(/resource_metadata="([^"]+)"/)?.[1];
+    assert.ok(advertised, `no resource_metadata in ${challenge}`);
+
+    const followed = await fetch(advertised.replace(/^https:/, 'http:'));
+    assert.equal(followed.status, 200, 'the advertised metadata url must resolve');
+  });
+
   test('an unknown path is 404, not a hung request', async () => {
     assert.equal((await fetch(`${base}/nope`)).status, 404);
   });
