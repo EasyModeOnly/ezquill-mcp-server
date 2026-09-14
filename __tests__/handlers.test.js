@@ -103,6 +103,54 @@ describe('list_projects', () => {
     assert.deepEqual(result.projects, []);
   });
 
+  test('NO_PROJECTS hands back a URL, not a description of one', async () => {
+    // Somebody can register from the connector's own sign-in page, so this
+    // reaches people who have never opened ezQuill. "In the app" names a place
+    // they have not been.
+    process.env.EZQUILL_APP_BASE_URL = 'https://dev.ezquill.com';
+    stubFetch({ '/projects': { projects: [], hasMore: false, total: 0 } });
+    await assert.rejects(
+      () => run('list_projects', {}),
+      (err) => {
+        assert.equal(err.code, Code.NO_PROJECTS);
+        assert.equal(err.detail.createProjectUrl, 'https://dev.ezquill.com/new/project');
+        assert.equal(
+          err.toResult().createProjectUrl,
+          'https://dev.ezquill.com/new/project',
+          'the URL must survive serialisation into the tool result'
+        );
+        return true;
+      }
+    );
+    delete process.env.EZQUILL_APP_BASE_URL;
+  });
+
+  test('an empty SHARED list offers no create link', async () => {
+    // Somebody waiting to be invited to someone else's project is not helped by
+    // a link to make their own, and offering it suggests the invitation was the
+    // misunderstanding.
+    stubFetch({ '/projects': { projects: [], hasMore: false, total: 0 } });
+    await assert.rejects(
+      () => run('list_projects', { shared: true }),
+      (err) => {
+        assert.equal(err.code, Code.NO_PROJECTS);
+        assert.equal(err.detail.createProjectUrl, undefined);
+        return true;
+      }
+    );
+  });
+
+  test('a refused request is FORBIDDEN_SCOPE, never NO_PROJECTS', async () => {
+    // The inverse mistake, and the one that gets debugged in the wrong place:
+    // reporting "you were not allowed to see this" as "this does not exist"
+    // sends a writer looking for a manuscript they still have.
+    stubFetch({ '/projects': { __status: 403 } });
+    await assert.rejects(
+      () => run('list_projects', {}),
+      (err) => err.code === Code.FORBIDDEN_SCOPE
+    );
+  });
+
   test('shared:true asks for collaborator projects', async () => {
     const calls = stubFetch({ '/projects': { projects: [{ id: 'p', title: 'T', progress: {} }] } });
     await run('list_projects', { shared: true });

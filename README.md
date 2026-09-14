@@ -98,6 +98,7 @@ forgets them.
 | --- | --- |
 | `EZQUILL_API_BASE_URL` | defaults to `https://api.ezquill.com` |
 | `EZQUILL_ISSUER` | OIDC issuer; defaults to `https://auth.ezquill.com/realms/ezquill` |
+| `EZQUILL_APP_BASE_URL` | where a PERSON is sent, not where requests go; defaults to `https://ezquill.com`. Used by the "no projects yet" result, which hands back a link rather than saying "in the app" — somebody can register from the sign-in page and reach it having never opened ezQuill |
 | `EZQUILL_TOKEN` | an explicit credential. **Outranks a cached sign-in**, and while it is set the server will not offer to sign in — a browser flow could not take effect, and sending someone on an errand that cannot work is worse than saying nothing |
 | `EZQUILL_TOKEN_PATH` | where the cached sign-in lives |
 | `EZQUILL_NO_BROWSER` | never launch a browser. The link is still returned — that is the contract; opening it is a convenience |
