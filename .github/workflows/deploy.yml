@@ -1,12 +1,26 @@
 name: Deploy connector
 
-# Manual, and per environment.
+# Runs when a VERSION is released, and by hand.
 #
-# Not on push to main, deliberately. This service is reachable from claude.ai
-# by anybody who has connected it, so a deploy is a decision rather than a
-# consequence of merging — the same reason ezQuill's own API and web deploys
-# are dispatch-only.
+# Not on every push to main: this service is reachable from claude.ai by
+# anybody who has connected it, so a deploy is a decision rather than a
+# consequence of merging. The decision is the same one npm gets — bumping
+# `version` in package.json — so publish.yml calls this workflow, dev then
+# prod, whenever it stages a version the registry does not have.
+#
+# It used to be dispatch-only, and that is what went wrong: create_project
+# merged, npm got 0.2.0, and the remote connector every plugin talks to kept
+# serving the old tool list with nothing anywhere saying so. Two release steps
+# for one release is one that gets forgotten.
+#
+# Dispatch stays for redeploying without a release (an infra change, a rollback
+# to main after a bad revision).
 on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       environment:
@@ -74,8 +88,8 @@ jobs:
       # The service is created by Terraform behind `deploy_mcp`, which defaults
       # to false. Until that is flipped there is nothing to deploy to.
       #
-      # This FAILS rather than skips, because the run was dispatched by a person
-      # who asked for a deploy — telling them nothing happened is the point. The
+      # This FAILS rather than skips, because the run was a release or a person
+      # asking for a deploy — telling them nothing happened is the point. The
       # opposite rule applies to checks that run on every push, where a red
       # "not enabled here" is how people learn to ignore red.
       # Names the RESOURCE KIND and the project, not just an identifier.

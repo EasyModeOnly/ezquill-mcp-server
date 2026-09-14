@@ -55,6 +55,8 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    outputs:
+      released: ${{ steps.decide.outputs.publish }}
 
     steps:
       - uses: actions/checkout@v4
@@ -131,3 +133,27 @@ jobs:
             echo
             echo "Or approve it on npmjs.com. \`npm stage reject <stage-id>\` discards it."
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # ── The remote connector ships with the package ─────────────────────────────
+  # A version bump is ONE release, so it deploys the Cloud Run connector too —
+  # dev, then prod only if dev deployed and verified. See deploy.yml's header
+  # for why this is not a separate manual step any more.
+  #
+  # Keyed on the same registry decision as the stage above, not on the stage
+  # being APPROVED: the remote connector is not installed from npm, so waiting
+  # on a 2FA approval would only reintroduce the gap this closes. A merge that
+  # does not bump the version deploys nothing, exactly as it publishes nothing.
+  deploy-dev:
+    needs: publish
+    if: needs.publish.outputs.released == 'true'
+    uses: ./.github/workflows/deploy.yml
+    with:
+      environment: dev
+    secrets: inherit
+
+  deploy-prod:
+    needs: deploy-dev
+    uses: ./.github/workflows/deploy.yml
+    with:
+      environment: prod
+    secrets: inherit
