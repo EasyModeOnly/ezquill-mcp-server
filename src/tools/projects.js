@@ -8,6 +8,7 @@
  */
 import { call } from '../lib/api.js';
 import { Code, ToolError } from '../lib/errors.js';
+import { createProjectUrl } from '../lib/app-url.js';
 
 export const tools = [
   {
@@ -45,12 +46,30 @@ export const tools = [
       // "Signed in and nothing here" is a fact an agent must be able to act on.
       // Returned as an empty list it reads as data loss — the writer connected
       // their manuscripts and the agent reports there are none.
+      //
+      // Guarded on `!search && !status` because "you have nothing" and "nothing
+      // matched that" are different facts, and only the first one is this. A
+      // filtered miss stays an empty list.
+      //
+      // The URL is handed back rather than described. Somebody can register
+      // from the connector's own sign-in page and reach this line having never
+      // opened ezQuill, so "in the app" names a place they have not been. Only
+      // on the OWNED branch: a person waiting to be invited to someone else's
+      // project is not helped by a link to make their own, and offering it
+      // suggests the invitation was the misunderstanding.
       if (projects.length === 0 && !search && !status) {
+        if (shared) {
+          throw new ToolError(
+            Code.NO_PROJECTS,
+            'No projects have been shared with this account yet.',
+            { shared: true }
+          );
+        }
         throw new ToolError(
           Code.NO_PROJECTS,
-          shared
-            ? 'No projects have been shared with this account yet.'
-            : 'This ezQuill account has no projects yet. Create one in the app first.'
+          'This ezQuill account has no projects yet. Projects are created in ezQuill itself, ' +
+            'not through this connector — open the link to make one, then ask again.',
+          { createProjectUrl: createProjectUrl() }
         );
       }
 
