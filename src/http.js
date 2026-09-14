@@ -27,6 +27,7 @@ import { createServer as createHttpServer } from 'node:http';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 
 import { createServer } from './lib/create-server.js';
+import { DEFAULT_SCOPES } from './lib/oauth.js';
 import { withRequest } from './lib/request-context.js';
 
 const PORT = Number(process.env.PORT || 8080);
@@ -109,7 +110,13 @@ const http = createHttpServer(async (req, res) => {
   if (!token) {
     res.writeHead(401, {
       'Content-Type': 'application/json',
-      'WWW-Authenticate': `Bearer resource_metadata="${resourceMetadataUrl(req)}"`,
+      // `scope` is what the CLIENT will request. Under the MCP authorization
+      // spec a client takes it from here first and, failing that, requests
+      // every scope in `scopes_supported` — which is how the plugin's consent
+      // screen came to ask for delete (#323).
+      'WWW-Authenticate':
+        `Bearer resource_metadata="${resourceMetadataUrl(req)}", ` +
+        `scope="${DEFAULT_SCOPES.join(' ')}"`,
     });
     return res.end(JSON.stringify({ error: 'unauthorized' }));
   }
@@ -146,10 +153,23 @@ const metadataPath = () => `/.well-known/oauth-protected-resource${MCP_PATH}`;
 /**
  * What a client needs in order to go and get a token.
  *
- * `scopes_supported` lists what this resource UNDERSTANDS, which is not the
- * same as what any given token was granted — a client asks for a subset and a
- * person consents to a subset of that. Advertising delete here is correct and
- * is not the same as requesting it.
+ * # `scopes_supported` is a REQUEST, not a catalogue
+ *
+ * This used to list delete, on the reasoning that advertising a scope is not
+ * requesting it. Under the MCP authorization spec that is false: a client with
+ * no `scope` in the 401 challenge requests everything listed here. Keycloak's
+ * consent is accept-or-decline over the whole set, so the remote connector made
+ * "permanently delete your scenes…" a condition of connecting — the exact thing
+ * the local path's DEFAULT_SCOPES exists to avoid (#323).
+ *
+ * So both this and the challenge read DEFAULT_SCOPES, and a remote token can
+ * never hold delete. Delete actions answer FORBIDDEN_SCOPE remotely, as they do
+ * locally by default. If remote delete is ever wanted, the shape is step-up: a
+ * 403 `insufficient_scope` challenge naming it when a delete is attempted —
+ * never a scope everyone is asked for up front.
+ *
+ * `openid` is left out here: it is the authorization server's scope, not
+ * something this resource understands.
  */
 function protectedResourceMetadata(req) {
   const host = req.headers.host ?? `localhost:${PORT}`;
@@ -158,7 +178,7 @@ function protectedResourceMetadata(req) {
   return {
     resource: `${proto}://${host}${MCP_PATH}`,
     authorization_servers: [ISSUER],
-    scopes_supported: ['ezquill:read', 'ezquill:write', 'ezquill:delete'],
+    scopes_supported: DEFAULT_SCOPES.filter((s) => s !== 'openid'),
     bearer_methods_supported: ['header'],
     resource_documentation: 'https://github.com/EasyModeOnly/ezquill-mcp-server',
   };
