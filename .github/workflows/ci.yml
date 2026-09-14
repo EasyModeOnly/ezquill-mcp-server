@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      # `npm ci`, not `npm install`: the lockfile is the contract, and a CI run
+      # that quietly resolves different versions from the ones tested locally
+      # is a CI run that proves less than it appears to.
+      - run: npm ci
+
+      - run: npm test
+
+      # The image is part of the deliverable, so a Dockerfile that no longer
+      # builds should fail here rather than at deploy time.
+      - run: docker build -t ezquill-mcp-server:ci .
