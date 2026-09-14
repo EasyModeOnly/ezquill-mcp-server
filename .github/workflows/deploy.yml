@@ -25,6 +25,17 @@ env:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
+    # The WIF provider and service account differ per environment — they live
+    # in different GCP projects — so the credentials must be scoped the same
+    # way. Without this the job reads repository-level secrets only, and would
+    # cheerfully deploy to whichever project happened to be configured there
+    # regardless of the environment asked for.
+    #
+    # It also means a protection rule can be put on `prod` without touching
+    # this file.
+    environment: ${{ inputs.environment }}
+
     permissions:
       contents: read
       id-token: write
