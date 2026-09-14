@@ -65,10 +65,15 @@ export const tools = [
             { shared: true }
           );
         }
+        // An OFFER now rather than a dead end (#322): create_project can start
+        // one. The URL stays, because some people would rather use the wizard,
+        // and the message says to ask — an empty account is not a request for
+        // a project.
         throw new ToolError(
           Code.NO_PROJECTS,
-          'This ezQuill account has no projects yet. Projects are created in ezQuill itself, ' +
-            'not through this connector — open the link to make one, then ask again.',
+          'This ezQuill account has no projects yet. If the writer wants to start one, ' +
+            'ask what it is called, what kind of writing it is and how it is structured, then ' +
+            'use create_project — or they can make one in ezQuill at the link.',
           { createProjectUrl: createProjectUrl() }
         );
       }
