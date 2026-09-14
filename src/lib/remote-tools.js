@@ -23,6 +23,10 @@
  * The rule for adding one: trace the handler. If it only calls the ezQuill API,
  * it belongs here. If it touches the filesystem, a child process or the working
  * directory, it does not.
+ *
+ * A tool must appear in exactly ONE of the two lists below, and a test fails if
+ * any tool appears in neither — so adding one forces the decision to be made
+ * rather than defaulted.
  */
 export const REMOTE_SAFE = new Set([
   'list_projects',
@@ -37,3 +41,17 @@ export const REMOTE_SAFE = new Set([
 ]);
 
 export const isRemoteSafe = (name) => REMOTE_SAFE.has(name);
+
+/**
+ * Tools served ONLY on the local surface, each with the reason it is excluded.
+ *
+ * Both of these bind a loopback port and shell out to a browser, neither of
+ * which means anything inside a container. And over a remote connector the
+ * CLIENT runs its own OAuth against this service, so a second sign-in offered
+ * inside the tool surface is inert — it would sign the SERVER in as somebody,
+ * which is not what the caller is asking for and would be a confusing thing to
+ * let them do.
+ */
+export const LOCAL_ONLY = new Set(['authenticate', 'sign_out']);
+
+export const isLocalOnly = (name) => LOCAL_ONLY.has(name);

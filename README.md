@@ -20,6 +20,7 @@ consent, and only as far as they allowed.
 | `get_entity` | one of them in full, with relations and appearances |
 | `get_timeline` | story chronology, or the writer's own milestones |
 | `list_feedback` | open comments and suggested edits |
+| `authenticate`, `sign_out` | signing in. **Local only** — over a connector the client owns OAuth |
 
 `search_project` is the one nothing else can offer: a question can match the
 passage that answers it without sharing any words with it.
@@ -43,17 +44,34 @@ attributes invented sentences to the writer.
 ## Running it
 
 ```bash
-# stdio, for an editor or desktop client
-EZQUILL_TOKEN=<token> npx -y -p @ezquill/mcp-server mcp-server
+# stdio, for an editor or desktop client. No credential needed.
+npx -y -p @ezquill/mcp-server mcp-server
 
 # Streamable HTTP, for a remote connector
 PORT=8080 node src/http.js
 ```
 
+**Installing is the whole install.** There is no key to mint and paste. The
+first tool call returns a sign-in link, the person opens it, and the agent
+retries — the same flow a remote connector uses, and better UX than an
+environment variable rather than a workaround for one.
+
+The sign-in asks for read and write. It does **not** ask for permission to
+delete: Keycloak's consent screen is accept-or-decline over the whole set, so
+requesting it would make *"permanently delete your scenes, characters, timeline
+events and projects"* a condition of installing an MCP server. Call
+`authenticate` with `includeDelete` if you actually want that.
+
+Tokens are cached at `~/.ezquill/mcp-token.json`, mode `0600`. `sign_out`
+forgets them.
+
 | variable | meaning |
 | --- | --- |
 | `EZQUILL_API_BASE_URL` | defaults to `https://api.ezquill.com` |
-| `EZQUILL_TOKEN` | stdio only; the remote transport uses the caller's bearer token |
+| `EZQUILL_ISSUER` | OIDC issuer; defaults to `https://auth.ezquill.com/realms/ezquill` |
+| `EZQUILL_TOKEN` | an explicit credential. **Outranks a cached sign-in**, and while it is set the server will not offer to sign in — a browser flow could not take effect, and sending someone on an errand that cannot work is worse than saying nothing |
+| `EZQUILL_TOKEN_PATH` | where the cached sign-in lives |
+| `EZQUILL_NO_BROWSER` | never launch a browser. The link is still returned — that is the contract; opening it is a convenience |
 | `PORT`, `MCP_PATH` | HTTP transport; `MCP_PATH` defaults to `/mcp` |
 
 The remote transport is **stateless** — no session affinity is assumed, because
