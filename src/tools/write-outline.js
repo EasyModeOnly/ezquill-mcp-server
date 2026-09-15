@@ -30,14 +30,15 @@ export const tools = [
       'for, which the writer (or write_draft fill_plan) later writes. Never write an ' +
       'outline as prose with write_draft append — it counts as drafted text and the ' +
       'writer has to delete it. A section\'s thesis, purpose or angle goes in ' +
-      'set_aim, never in a line or a paragraph.',
+      'set_aim, and candidate titles in set_alternate_titles — never in a line or a ' +
+      'paragraph.',
     inputSchema: {
       type: 'object',
       properties: {
         projectId: { type: 'string' },
         action: {
           type: 'string',
-          enum: ['add', 'add_lines', 'rename', 'move', 'set_status', 'set_plan', 'set_aim', 'delete', 'restore'],
+          enum: ['add', 'add_lines', 'rename', 'move', 'set_status', 'set_plan', 'set_aim', 'set_alternate_titles', 'delete', 'restore'],
         },
         nodeId: {
           type: 'string',
@@ -94,6 +95,14 @@ export const tools = [
             'For set_aim: what this section (or post, chapter, scene) has to argue or do — ' +
             'a blog post\'s thesis, a scene\'s purpose, an article\'s angle. One or two ' +
             'sentences. Not a summary of what happens. An empty string clears it.',
+        },
+        alternateTitles: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'For set_alternate_titles: the COMPLETE list of candidate titles not in use, ' +
+            'replacing any already there. Read get_outline first and include the ones to ' +
+            'keep. An empty array clears them. The current title is never listed.',
         },
         parentId: { type: 'string', description: 'For move. Omit to move to the top level.' },
         order: {
@@ -232,6 +241,34 @@ export const tools = [
 
           const updated = await call(`${base}/${args.nodeId}`, { method: 'PATCH', body: { metadata } });
           return { updated: { ...summarise(updated), aim: aim || undefined } };
+        }
+
+        case 'set_alternate_titles': {
+          requireNode(args);
+          if (!Array.isArray(args.alternateTitles)) {
+            throw new ToolError(
+              Code.REQUEST_FAILED,
+              'set_alternate_titles needs `alternateTitles` (an empty array clears them).'
+            );
+          }
+          // Rebuilt from the row (metadata ASSIGNS), normalised the way the app's
+          // withAlternateTitles does: trimmed, blanks and case-insensitive
+          // duplicates dropped, and never the current title.
+          const node = await call(`${base}/${args.nodeId}`);
+          const seen = new Set([String(node.title ?? '').trim().toLowerCase()]);
+          const titles = [];
+          for (const raw of args.alternateTitles) {
+            const title = typeof raw === 'string' ? raw.trim() : '';
+            if (!title || seen.has(title.toLowerCase())) continue;
+            seen.add(title.toLowerCase());
+            titles.push(title);
+          }
+          const metadata = { ...(node.metadata ?? {}) };
+          if (titles.length > 0) metadata.alternateTitles = titles;
+          else delete metadata.alternateTitles;
+
+          const updated = await call(`${base}/${args.nodeId}`, { method: 'PATCH', body: { metadata } });
+          return { updated: { ...summarise(updated), alternateTitles: titles } };
         }
 
         case 'delete':

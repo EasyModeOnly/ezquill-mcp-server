@@ -350,6 +350,31 @@ describe('manage_outline', () => {
     assert.ok(!('aim' in sent.find((r) => r.method === 'PATCH').body.metadata));
   });
 
+  test('set_alternate_titles replaces the list, keeps other metadata, and never lists the title', async () => {
+    const sent = stub({
+      'GET /nodes/n1': { id: 'n1', title: 'Amnesia', metadata: { aim: 'keep', alternateTitles: ['old'] } },
+      'PATCH /nodes/n1': (body) => ({ id: 'n1', ...body }),
+    });
+
+    await run('manage_outline', {
+      projectId: 'p', action: 'set_alternate_titles', nodeId: 'n1',
+      alternateTitles: [' Four Layers ', 'four layers', '', 'amnesia', 'The Hard Part'],
+    });
+
+    assert.deepEqual(sent.find((r) => r.method === 'PATCH').body.metadata, {
+      aim: 'keep', alternateTitles: ['Four Layers', 'The Hard Part'],
+    });
+  });
+
+  test('set_alternate_titles with an empty array clears the key', async () => {
+    const sent = stub({
+      'GET /nodes/n1': { id: 'n1', title: 'T', metadata: { alternateTitles: ['x'] } },
+      'PATCH /nodes/n1': (body) => ({ id: 'n1', ...body }),
+    });
+    await run('manage_outline', { projectId: 'p', action: 'set_alternate_titles', nodeId: 'n1', alternateTitles: [] });
+    assert.ok(!('alternateTitles' in sent.find((r) => r.method === 'PATCH').body.metadata));
+  });
+
   test('move uses the parent endpoint, never PATCH', async () => {
     // Reparenting is the one mutation that can corrupt the tree, and only that
     // endpoint rejects a destination inside the node's own subtree.

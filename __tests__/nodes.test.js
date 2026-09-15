@@ -137,4 +137,13 @@ describe('aim in the outline', () => {
     assert.equal(post.aim, 'Memory goes stale.');
     assert.equal(post.children[0].aim, undefined);
   });
+
+  test('alternate titles are reported, and omitted when there are none', () => {
+    const [post] = buildTree([
+      { id: 'p', title: 'Post', nodeType: 'post', order: 0, metadata: { alternateTitles: ['Other', ' '] } },
+      { id: 's', title: 'Hook', nodeType: 'section', parentId: 'p', order: 0, metadata: {} },
+    ]);
+    assert.deepEqual(post.alternateTitles, ['Other']);
+    assert.equal(post.children[0].alternateTitles, undefined);
+  });
 });
