@@ -265,6 +265,64 @@ describe('manage_outline', () => {
     assert.deepEqual(patch.body.metadata, { tags: ['keep'], writingType: 'fiction', plan: 'new' });
   });
 
+  test('add_lines plans paragraphs through the reconcile, keeping every existing block', async () => {
+    // The outline half of a section. Before this, an agent's only way to make
+    // a paragraph was write_draft append, so outlines arrived as prose.
+    const sent = stub({
+      '/nodes': { nodes: [written('b1', 'One.', 1, 4)], hasMore: false },
+      'PUT /blocks': (body) => ({
+        blocks: body.blocks.map((b) => (b.plan ? { id: b.id, metadata: { plan: b.plan } } : { id: b.id })),
+        refused: [],
+        removed: [],
+      }),
+    });
+
+    const result = await run('manage_outline', {
+      projectId: 'p', action: 'add_lines', nodeId: 's',
+      lines: ['  Open on the wrong ticket. ', '', 'Say what a session loses.'],
+    });
+
+    const put = sent.find((r) => r.method === 'PUT');
+    assert.equal(put.body.blocks[0].id, 'b1', 'the existing block must be resent or it is deleted');
+    assert.equal(Object.keys(put.body.blocks[0]).length, 1, 'and resent without content');
+
+    const added = put.body.blocks.slice(1);
+    assert.deepEqual(added.map((b) => b.plan), ['Open on the wrong ticket.', 'Say what a session loses.']);
+    assert.ok(added.every((b) => b.id && !('content' in b)), 'a planned line carries no prose');
+    assert.deepEqual(result.planned.map((l) => l.plan), ['Open on the wrong ticket.', 'Say what a session loses.']);
+  });
+
+  test('add_lines refuses a paragraph as the section', async () => {
+    const sent = stub({
+      '/nodes': { nodes: [], hasMore: false },
+      'GET /nodes/b1': { id: 'b1', nodeType: 'block', hasProse: true },
+    });
+    await assert.rejects(
+      () => run('manage_outline', { projectId: 'p', action: 'add_lines', nodeId: 'b1', lines: ['x'] }),
+      /paragraph, not a section/
+    );
+    assert.ok(!sent.some((r) => r.method === 'PUT'));
+  });
+
+  test('add_lines adopts an empty section document, as append does', async () => {
+    const sent = stub({
+      '/nodes': { nodes: [], hasMore: false },
+      'GET /nodes/s': { id: 's', nodeType: 'post', hasProse: true, content: { document: { type: 'doc', content: [] } } },
+      'PUT /blocks': (body) => ({ blocks: body.blocks, refused: [], removed: [] }),
+    });
+    await run('manage_outline', { projectId: 'p', action: 'add_lines', nodeId: 's', lines: ['Hook.'] });
+    assert.equal(sent.find((r) => r.method === 'PUT').body.adoptSectionProse, true);
+  });
+
+  test('add_lines with no usable lines sends nothing', async () => {
+    const sent = stub({});
+    await assert.rejects(
+      () => run('manage_outline', { projectId: 'p', action: 'add_lines', nodeId: 's', lines: ['  '] }),
+      /at least one/
+    );
+    assert.equal(sent.length, 0);
+  });
+
   test('move uses the parent endpoint, never PATCH', async () => {
     // Reparenting is the one mutation that can corrupt the tree, and only that
     // endpoint rejects a destination inside the node's own subtree.
