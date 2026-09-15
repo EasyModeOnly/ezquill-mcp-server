@@ -48,12 +48,33 @@ export const tools = [
         },
         lines: {
           type: 'array',
+          items: {
+            oneOf: [
+              { type: 'string' },
+              {
+                type: 'object',
+                properties: {
+                  line: { type: 'string' },
+                  points: { type: 'array', items: { type: 'string' } },
+                },
+                required: ['line'],
+              },
+            ],
+          },
+          description:
+            'For add_lines: one entry per paragraph, in order, appended after the section\'s ' +
+            'existing paragraphs. A plan says what the paragraph must do ("Open on the ' +
+            'ticket that was wrong"), not its finished wording. When ONE paragraph has to ' +
+            'cover several things, pass { line, points } rather than a line per thing: ' +
+            'points are sub-points of that paragraph, one level deep. All are created in ' +
+            'one transaction.',
+        },
+        points: {
+          type: 'array',
           items: { type: 'string' },
           description:
-            'For add_lines: one plan per paragraph, in order, appended after the section\'s ' +
-            'existing paragraphs. A plan says what the paragraph must do ("Open on the ' +
-            'ticket that was wrong"), not its finished wording. All are created in one ' +
-            'transaction.',
+            'For set_plan: the paragraph\'s sub-points, replacing any already there. Omit ' +
+            'to leave them unchanged; an empty array clears them.',
         },
         nodes: {
           type: 'array',
@@ -218,6 +239,11 @@ export const tools = [
           // view's block go with it. Read the row and rebuild from it.
           const node = await call(`${base}/${args.nodeId}`);
           const metadata = { ...(node.metadata ?? {}), plan: args.plan };
+          if (Array.isArray(args.points)) {
+            const points = cleanPoints(args.points);
+            if (points.length > 0) metadata.planPoints = points;
+            else delete metadata.planPoints;
+          }
 
           return {
             updated: summarise(
@@ -311,7 +337,13 @@ export const tools = [
  * not at all.
  */
 async function addLines({ projectId, nodeId, lines }) {
-  const plans = (lines ?? []).filter((l) => typeof l === 'string').map((l) => l.trim()).filter(Boolean);
+  const plans = (lines ?? [])
+    .map((entry) =>
+      typeof entry === 'string'
+        ? { plan: entry.trim(), points: [] }
+        : { plan: String(entry?.line ?? '').trim(), points: cleanPoints(entry?.points) }
+    )
+    .filter((entry) => entry.plan);
   if (plans.length === 0) {
     throw new ToolError(Code.REQUEST_FAILED, 'add_lines needs at least one non-empty entry in `lines`.');
   }
@@ -324,7 +356,13 @@ async function addLines({ projectId, nodeId, lines }) {
     body: {
       blocks: [
         ...blocks.map((b) => ({ id: b.id })),
-        ...plans.map((plan) => ({ id: randomUUID(), plan })),
+        // Points ride in the same INSERT as the plan (BlockSave.planPoints),
+        // so a line never exists without what it has to cover.
+        ...plans.map(({ plan, points }) => ({
+          id: randomUUID(),
+          plan,
+          ...(points.length > 0 ? { planPoints: points } : {}),
+        })),
       ],
       ...(adoptSectionProse ? { adoptSectionProse: true } : {}),
     },
@@ -334,12 +372,23 @@ async function addLines({ projectId, nodeId, lines }) {
   return {
     planned: (result?.blocks ?? [])
       .filter((b) => !existing.has(b.id))
-      .map((b) => ({ id: b.id, plan: b.metadata?.plan })),
+      .map((b) => ({
+        id: b.id,
+        plan: b.metadata?.plan,
+        ...(Array.isArray(b.metadata?.planPoints) ? { points: b.metadata.planPoints } : {}),
+      })),
     paragraphs: (result?.blocks ?? []).length,
     note:
       'Planned, not written. Each line shows in the outline and as an empty paragraph in ' +
       'the draft. Fill one with write_draft fill_plan, or leave them for the writer.',
   };
+}
+
+/** Trimmed, blanks dropped: the app's withPoints rule. */
+function cleanPoints(points) {
+  return (Array.isArray(points) ? points : [])
+    .map((p) => (typeof p === 'string' ? p.trim() : ''))
+    .filter(Boolean);
 }
 
 function requireNode(args) {
