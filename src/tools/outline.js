@@ -1,5 +1,5 @@
 import { call, callPaged } from '../lib/api.js';
-import { aimOf, assembleProse, buildTree, byOrder, isBlock, planLines } from '../lib/nodes.js';
+import { aimOf, alternateTitlesOf, assembleProse, buildTree, byOrder, isBlock, planLines } from '../lib/nodes.js';
 
 export const tools = [
   {
@@ -73,6 +73,7 @@ export const tools = [
         status: node.status,
         wordCount: node.wordCount,
         aim: aimOf(node),
+        alternateTitles: alternateTitlesOf(node),
         prose: assembleProse(node, blocks),
         // The outline lines beside the prose. A planned-but-unwritten block
         // shows what the writer intends to put there, which is exactly the
