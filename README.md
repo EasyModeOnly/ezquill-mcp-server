@@ -198,7 +198,22 @@ checkout into everybody's plugin cache.
 It is still the way to run the connector offline, against a dev stack, or as a
 self-hosted process: see "Running it" above, and add it with `claude mcp add`.
 
-## Publishing
+## Releasing
+
+A release has two destinations, and neither is the plugin:
+
+| workflow | ships | to |
+| --- | --- | --- |
+| **Release (npm package + remote connector)** — `publish.yml` | the server package | npm, for people running it themselves |
+| **Deploy remote connector (Cloud Run)** — `deploy.yml` | the same code as a container | `mcp.dev.ezquill.com`, then `mcp.ezquill.com` |
+
+The **plugin** is `plugin/.claude-plugin/plugin.json`: a manifest pointing at
+the remote connector's URL, installed from this repository. Nothing publishes
+it, and it only changes when the URL or OAuth client does — which is why a fix
+reaches plugin users through a deploy, not a plugin update.
+
+`publish.yml` keeps its filename because npm's trusted publisher is configured
+against it by name.
 
 `.github/workflows/publish.yml` runs on every push to `main` and decides what
 to do by **asking the registry** — `npm view <name>@<version>` — rather than by
@@ -216,9 +231,13 @@ that should reach plugin users needs a version bump, exactly as it does for npm
 users; a merge without one ships nowhere.
 
 If a deploy job fails after the version was staged, the next merge will find the
-version already published and deploy nothing. Re-run the failed jobs in that
-run, or dispatch **Deploy connector** by hand, which is also how to redeploy
-without a release.
+version already staged and deploy nothing. Re-run the failed jobs in that run,
+or dispatch **Deploy remote connector (Cloud Run)** by hand, which is also how
+to redeploy without a release.
+
+While a staged version waits for approval, later merges stay green and release
+nothing: npm refuses to stage the same version twice, and the workflow reads
+that refusal as "awaiting approval" rather than failing.
 
 It uses **npm Trusted Publishing** — an OIDC token minted per run, no npm token
 stored in this repository — and it **stages** rather than publishes:
