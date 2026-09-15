@@ -32,6 +32,15 @@ export const BLOCK = 'block';
 export const isBlock = (node) => node?.nodeType === BLOCK;
 
 /**
+ * A section's aim (`metadata.aim`): its thesis, purpose or angle. Undefined when
+ * unset, so it drops out of JSON rather than reading as an empty claim.
+ */
+export const aimOf = (node) => {
+  const aim = node?.metadata?.aim;
+  return typeof aim === 'string' && aim.trim() ? aim : undefined;
+};
+
+/**
  * What this node IS, in the words a writer would use.
  *
  * @returns {'scene'|'folder'|'unwritten'|'paragraph'}
@@ -132,6 +141,9 @@ export function buildTree(nodes) {
       nodeType: entry.node.nodeType,
       status: entry.node.status,
       wordCount: entry.node.wordCount,
+      // What this section has to argue or do (a post's thesis, a scene's
+      // purpose). Not the synopsis in `description`. Omitted when unset.
+      aim: aimOf(entry.node),
       kind: classify(entry.node, [...childNodes, ...blocks]),
       children: entry.children.sort((a, b) => byOrder(a.node, b.node)).map(shape),
     };

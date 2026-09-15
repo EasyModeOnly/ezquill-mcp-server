@@ -29,14 +29,15 @@ export const tools = [
       'use add_lines: each line is a planned, unwritten paragraph saying what it is ' +
       'for, which the writer (or write_draft fill_plan) later writes. Never write an ' +
       'outline as prose with write_draft append — it counts as drafted text and the ' +
-      'writer has to delete it.',
+      'writer has to delete it. A section\'s thesis, purpose or angle goes in ' +
+      'set_aim, never in a line or a paragraph.',
     inputSchema: {
       type: 'object',
       properties: {
         projectId: { type: 'string' },
         action: {
           type: 'string',
-          enum: ['add', 'add_lines', 'rename', 'move', 'set_status', 'set_plan', 'delete', 'restore'],
+          enum: ['add', 'add_lines', 'rename', 'move', 'set_status', 'set_plan', 'set_aim', 'delete', 'restore'],
         },
         nodeId: {
           type: 'string',
@@ -86,6 +87,13 @@ export const tools = [
           description:
             "For set_plan: the one-line intention for a paragraph — what it is FOR, " +
             'not its text.',
+        },
+        aim: {
+          type: 'string',
+          description:
+            'For set_aim: what this section (or post, chapter, scene) has to argue or do — ' +
+            'a blog post\'s thesis, a scene\'s purpose, an article\'s angle. One or two ' +
+            'sentences. Not a summary of what happens. An empty string clears it.',
         },
         parentId: { type: 'string', description: 'For move. Omit to move to the top level.' },
         order: {
@@ -207,6 +215,23 @@ export const tools = [
               await call(`${base}/${args.nodeId}`, { method: 'PATCH', body: { metadata } })
             ),
           };
+        }
+
+        case 'set_aim': {
+          requireNode(args);
+          if (typeof args.aim !== 'string') {
+            throw new ToolError(Code.REQUEST_FAILED, 'set_aim needs `aim` (an empty string clears it).');
+          }
+          // Same rule as set_plan: metadata is ASSIGNED, so rebuild it from the
+          // row. A blank aim deletes the key, matching the app's withAim.
+          const node = await call(`${base}/${args.nodeId}`);
+          const metadata = { ...(node.metadata ?? {}) };
+          const aim = args.aim.trim();
+          if (aim) metadata.aim = aim;
+          else delete metadata.aim;
+
+          const updated = await call(`${base}/${args.nodeId}`, { method: 'PATCH', body: { metadata } });
+          return { updated: { ...summarise(updated), aim: aim || undefined } };
         }
 
         case 'delete':

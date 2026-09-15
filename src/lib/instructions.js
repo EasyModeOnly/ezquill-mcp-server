@@ -35,7 +35,8 @@ Changing things:
 - To outline, plan paragraphs with manage_outline "add_lines". Each line says
   what a paragraph must do and stays unwritten until someone fills it. Never
   write an outline with write_draft: it becomes drafted prose the writer has
-  to delete, and the outline tools have nothing left to work from.
+  to delete, and the outline tools have nothing left to work from. A
+  section's thesis or purpose goes in manage_outline "set_aim", not in a line.
 - Read a scene before writing into it. The tools protect the manuscript, not
   your judgement about what belongs in it.
 - Creating a character is cheap to do and expensive to undo: it joins the cast

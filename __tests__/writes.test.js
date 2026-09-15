@@ -323,6 +323,33 @@ describe('manage_outline', () => {
     assert.equal(sent.length, 0);
   });
 
+  test('set_aim rebuilds the WHOLE metadata blob and trims', async () => {
+    const sent = stub({
+      'GET /nodes/n1': { id: 'n1', metadata: { tags: ['keep'], description: 'A synopsis.' } },
+      'PATCH /nodes/n1': (body) => ({ id: 'n1', ...body }),
+    });
+
+    const result = await run('manage_outline', {
+      projectId: 'p', action: 'set_aim', nodeId: 'n1', aim: '  A context window is not memory. ',
+    });
+
+    const patch = sent.find((r) => r.method === 'PATCH');
+    // The synopsis is a different field and must survive.
+    assert.deepEqual(patch.body.metadata, {
+      tags: ['keep'], description: 'A synopsis.', aim: 'A context window is not memory.',
+    });
+    assert.equal(result.updated.aim, 'A context window is not memory.');
+  });
+
+  test('set_aim with an empty string clears the key', async () => {
+    const sent = stub({
+      'GET /nodes/n1': { id: 'n1', metadata: { tags: [], aim: 'old' } },
+      'PATCH /nodes/n1': (body) => ({ id: 'n1', ...body }),
+    });
+    await run('manage_outline', { projectId: 'p', action: 'set_aim', nodeId: 'n1', aim: '' });
+    assert.ok(!('aim' in sent.find((r) => r.method === 'PATCH').body.metadata));
+  });
+
   test('move uses the parent endpoint, never PATCH', async () => {
     // Reparenting is the one mutation that can corrupt the tree, and only that
     // endpoint rejects a destination inside the node's own subtree.

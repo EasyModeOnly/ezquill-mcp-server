@@ -127,3 +127,14 @@ describe('buildTree', () => {
     assert.deepEqual(tree.map((n) => n.id), ['a', 'b', 'c']);
   });
 });
+
+describe('aim in the outline', () => {
+  test('a section reports its aim, and the synopsis is not mistaken for one', () => {
+    const [post] = buildTree([
+      { id: 'p', title: 'Post', nodeType: 'post', order: 0, metadata: { aim: 'Memory goes stale.' } },
+      { id: 's', title: 'Hook', nodeType: 'section', parentId: 'p', order: 0, metadata: { description: 'What happens.' } },
+    ]);
+    assert.equal(post.aim, 'Memory goes stale.');
+    assert.equal(post.children[0].aim, undefined);
+  });
+});
