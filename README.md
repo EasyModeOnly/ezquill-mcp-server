@@ -1,11 +1,13 @@
 # @ezquill/mcp-server
 
-An MCP server for [ezQuill](https://ezquill.com). It lets an AI agent read a
-writer's manuscript, story world and timeline — on their behalf, with their
-consent, and only as far as they allowed.
+An MCP server for [ezQuill](https://ezquill.com). It lets an AI agent read and
+write a writer's manuscript, story world and timeline — on their behalf, with
+their consent, and only as far as they allowed.
 
-**Read-only.** Writes are designed and not yet built (ezQuill epic #31, task
-#274); every tool here declares `readOnlyHint`.
+**Reads and additive writes; never a silent overwrite.** Adding scenes,
+paragraphs, characters and whole projects goes straight through. Changing words
+a person already wrote becomes a suggested edit they accept in ezQuill — see
+[Writing](#writing). Read tools declare `readOnlyHint`; write tools do not.
 
 ## Tools
 
