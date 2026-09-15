@@ -17,25 +17,41 @@ import { randomUUID } from 'node:crypto';
 import { call } from '../lib/api.js';
 import { ToolError, Code } from '../lib/errors.js';
 import { levelsFor } from '../lib/writing-types.js';
+import { refuseUnmigrated, sectionBlocks } from '../lib/sections.js';
 
 export const tools = [
   {
     name: 'manage_outline',
     description:
-      'Change the structure of a project: add chapters or scenes, rename them, move ' +
-      'them, set their status, or write the one-line plan for a paragraph. Does not ' +
-      'write prose — use write_draft for that.',
+      'Change the structure of a project: add chapters, scenes or sections, rename ' +
+      'them, move them, set their status, plan paragraphs, or change one paragraph\'s ' +
+      'plan. Does not write prose — use write_draft for that. To OUTLINE a section, ' +
+      'use add_lines: each line is a planned, unwritten paragraph saying what it is ' +
+      'for, which the writer (or write_draft fill_plan) later writes. Never write an ' +
+      'outline as prose with write_draft append — it counts as drafted text and the ' +
+      'writer has to delete it.',
     inputSchema: {
       type: 'object',
       properties: {
         projectId: { type: 'string' },
         action: {
           type: 'string',
-          enum: ['add', 'rename', 'move', 'set_status', 'set_plan', 'delete', 'restore'],
+          enum: ['add', 'add_lines', 'rename', 'move', 'set_status', 'set_plan', 'delete', 'restore'],
         },
         nodeId: {
           type: 'string',
-          description: 'The node to act on. Required by every action except add.',
+          description:
+            'The node to act on. Required by every action except add. For add_lines, the ' +
+            'section, chapter, scene or post the lines go in.',
+        },
+        lines: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'For add_lines: one plan per paragraph, in order, appended after the section\'s ' +
+            'existing paragraphs. A plan says what the paragraph must do ("Open on the ' +
+            'ticket that was wrong"), not its finished wording. All are created in one ' +
+            'transaction.',
         },
         nodes: {
           type: 'array',
@@ -138,6 +154,10 @@ export const tools = [
           };
         }
 
+        case 'add_lines':
+          requireNode(args);
+          return addLines(args);
+
         case 'rename':
           requireNode(args);
           return {
@@ -211,6 +231,54 @@ export const tools = [
     },
   },
 ];
+
+/**
+ * Plan paragraphs: the outline half of a section, with no prose in it.
+ *
+ * Before this existed, an agent asked for an outline had no way to make one.
+ * set_plan needs a paragraph that already exists, `add` makes structural levels
+ * and not paragraphs, and write_draft append makes WRITTEN paragraphs. So the
+ * outline arrived as prose: every line counted as drafted words, "Tab pulls the
+ * line in" and "Draft this" had nothing to work from, and the writer had to
+ * delete it all to start.
+ *
+ * It goes through the same whole-section reconcile as append, composed the same
+ * way: every existing block is sent back by id with no content, because a block
+ * absent from the list is REMOVED. Each new block carries its `plan`, which the
+ * API writes in the INSERT, so a line and its plan land in one transaction or
+ * not at all.
+ */
+async function addLines({ projectId, nodeId, lines }) {
+  const plans = (lines ?? []).filter((l) => typeof l === 'string').map((l) => l.trim()).filter(Boolean);
+  if (plans.length === 0) {
+    throw new ToolError(Code.REQUEST_FAILED, 'add_lines needs at least one non-empty entry in `lines`.');
+  }
+
+  const blocks = await sectionBlocks(projectId, nodeId);
+  const adoptSectionProse = await refuseUnmigrated(projectId, nodeId, blocks);
+
+  const result = await call(`/projects/${projectId}/nodes/${nodeId}/blocks`, {
+    method: 'PUT',
+    body: {
+      blocks: [
+        ...blocks.map((b) => ({ id: b.id })),
+        ...plans.map((plan) => ({ id: randomUUID(), plan })),
+      ],
+      ...(adoptSectionProse ? { adoptSectionProse: true } : {}),
+    },
+  });
+
+  const existing = new Set(blocks.map((b) => b.id));
+  return {
+    planned: (result?.blocks ?? [])
+      .filter((b) => !existing.has(b.id))
+      .map((b) => ({ id: b.id, plan: b.metadata?.plan })),
+    paragraphs: (result?.blocks ?? []).length,
+    note:
+      'Planned, not written. Each line shows in the outline and as an empty paragraph in ' +
+      'the draft. Fill one with write_draft fill_plan, or leave them for the writer.',
+  };
+}
 
 function requireNode(args) {
   if (!args.nodeId) {
