@@ -1,5 +1,5 @@
 import { call, callPaged } from '../lib/api.js';
-import { aimOf, alternateTitlesOf, assembleProse, buildTree, byOrder, isBlock, planLines } from '../lib/nodes.js';
+import { aimOf, alternateTitlesOf, assembleProse, sumWords, buildTree, byOrder, isBlock, planLines } from '../lib/nodes.js';
 
 export const tools = [
   {
@@ -71,7 +71,9 @@ export const tools = [
         title: node.title,
         nodeType: node.nodeType,
         status: node.status,
-        wordCount: node.wordCount,
+        // The scene's own prose plus its paragraphs: since prose moved into
+        // block rows the node's own count is 0 for any scene written since.
+        wordCount: (node.wordCount ?? 0) + sumWords(blocks),
         aim: aimOf(node),
         alternateTitles: alternateTitlesOf(node),
         prose: assembleProse(node, blocks),

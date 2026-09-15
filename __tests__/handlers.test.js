@@ -179,6 +179,24 @@ describe('read_scene', () => {
     assert.equal(scene.cast[0].role, 'pov', 'roles are raw, not labelled');
   });
 
+  test('word count includes the paragraphs, not just the node\'s own column', async () => {
+    // A section's own count is 0 once its prose is in blocks. Reporting that
+    // tells an agent a written scene is empty.
+    stubFetch({
+      '/nodes/s1/entities': { cast: [] },
+      '/nodes/s1': { id: 's1', title: 'Hook', nodeType: 'section', hasProse: false, wordCount: 0 },
+      '/nodes': {
+        nodes: [
+          { id: 'b1', nodeType: 'block', order: 1, hasProse: true, wordCount: 5, content: { plainText: 'The ticket sat open.' } },
+          { id: 'b2', nodeType: 'block', order: 2, hasProse: true, wordCount: 3, content: { plainText: 'It was wrong.' } },
+        ],
+        hasMore: false,
+      },
+    });
+    const scene = await run('read_scene', { projectId: 'p', nodeId: 's1' });
+    assert.equal(scene.wordCount, 8);
+  });
+
   test('a cast fetch failing does not lose the prose', async () => {
     stubFetch({
       '/nodes/s1/entities': { __status: 500 },

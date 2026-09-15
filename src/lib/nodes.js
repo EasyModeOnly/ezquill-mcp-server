@@ -73,6 +73,9 @@ export function classify(node, children = []) {
   return 'unwritten';
 }
 
+/** Total words across nodes, treating a missing count as none. */
+export const sumWords = (nodes) => nodes.reduce((total, n) => total + (n?.wordCount ?? 0), 0);
+
 /** Ascending by `order`, which is a float and may be fractional. */
 export const byOrder = (a, b) => (a?.order ?? 0) - (b?.order ?? 0);
 
@@ -147,18 +150,27 @@ export function buildTree(nodes) {
   const shape = (entry) => {
     const childNodes = entry.children.map((c) => c.node);
     const blocks = blocksByParent.get(entry.node.id) ?? [];
+    const children = entry.children.sort((a, b) => byOrder(a.node, b.node)).map(shape);
     return {
       id: entry.node.id,
       title: entry.node.title,
       nodeType: entry.node.nodeType,
       status: entry.node.status,
-      wordCount: entry.node.wordCount,
+      // ROLLED UP: its own prose, its paragraphs, and everything beneath it.
+      // A section's own count is 0 once its prose lives in block rows (its
+      // document is NULL by design), so printing the column told an agent a
+      // written chapter was empty. Summed here rather than stored, because a
+      // fact about other rows is a count, not a column.
+      wordCount:
+        (entry.node.wordCount ?? 0) +
+        sumWords(blocks) +
+        children.reduce((total, child) => total + child.wordCount, 0),
       // What this section has to argue or do (a post's thesis, a scene's
       // purpose). Not the synopsis in `description`. Omitted when unset.
       aim: aimOf(entry.node),
       alternateTitles: alternateTitlesOf(entry.node),
       kind: classify(entry.node, [...childNodes, ...blocks]),
-      children: entry.children.sort((a, b) => byOrder(a.node, b.node)).map(shape),
+      children,
     };
   };
 
