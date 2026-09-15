@@ -35,7 +35,9 @@ Changing things:
 - To outline, plan paragraphs with manage_outline "add_lines". Each line says
   what a paragraph must do and stays unwritten until someone fills it. Never
   write an outline with write_draft: it becomes drafted prose the writer has
-  to delete, and the outline tools have nothing left to work from. A
+  to delete, and the outline tools have nothing left to work from. When one
+  paragraph covers several things, give that line points ({ line, points })
+  instead of a line per thing. A
   section's thesis or purpose goes in manage_outline "set_aim", and candidate
   titles in "set_alternate_titles", not in a line.
 - Read a scene before writing into it. The tools protect the manuscript, not

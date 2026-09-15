@@ -110,6 +110,10 @@ export function planLines(blocks) {
   return [...blocks].sort(byOrder).map((b) => ({
     id: b.id,
     plan: b.metadata?.plan ?? null,
+    // What the one paragraph has to cover. Omitted when there are none.
+    ...(Array.isArray(b.metadata?.planPoints) && b.metadata.planPoints.length > 0
+      ? { points: b.metadata.planPoints }
+      : {}),
     excerpt: b.excerpt ?? null,
     written: Boolean(b.hasProse),
   }));

@@ -292,6 +292,41 @@ describe('manage_outline', () => {
     assert.deepEqual(result.planned.map((l) => l.plan), ['Open on the wrong ticket.', 'Say what a session loses.']);
   });
 
+  test('add_lines sends a line with its points in the same block', async () => {
+    const sent = stub({
+      '/nodes': { nodes: [], hasMore: false },
+      'GET /nodes/s': { id: 's', nodeType: 'section', hasProse: false },
+      'PUT /blocks': (body) => ({ blocks: body.blocks.map((b) => ({ id: b.id, metadata: { plan: b.plan, planPoints: b.planPoints } })), refused: [], removed: [] }),
+    });
+
+    const result = await run('manage_outline', {
+      projectId: 'p', action: 'add_lines', nodeId: 's',
+      lines: ['Hook.', { line: 'The four layers.', points: [' Instructions ', '', 'Task memory'] }],
+    });
+
+    const blocks = sent.find((r) => r.method === 'PUT').body.blocks;
+    assert.equal(blocks[0].plan, 'Hook.');
+    assert.ok(!('planPoints' in blocks[0]), 'no empty points key');
+    assert.deepEqual(blocks[1].planPoints, ['Instructions', 'Task memory']);
+    assert.deepEqual(result.planned[1].points, ['Instructions', 'Task memory']);
+  });
+
+  test('set_plan replaces points when given, and leaves them alone when not', async () => {
+    let sent = stub({
+      'GET /nodes/n1': { id: 'n1', metadata: { plan: 'old', planPoints: ['keep'] } },
+      'PATCH /nodes/n1': (body) => ({ id: 'n1', ...body }),
+    });
+    await run('manage_outline', { projectId: 'p', action: 'set_plan', nodeId: 'n1', plan: 'new' });
+    assert.deepEqual(sent.find((r) => r.method === 'PATCH').body.metadata, { plan: 'new', planPoints: ['keep'] });
+
+    sent = stub({
+      'GET /nodes/n1': { id: 'n1', metadata: { plan: 'old', planPoints: ['keep'] } },
+      'PATCH /nodes/n1': (body) => ({ id: 'n1', ...body }),
+    });
+    await run('manage_outline', { projectId: 'p', action: 'set_plan', nodeId: 'n1', plan: 'new', points: [] });
+    assert.deepEqual(sent.find((r) => r.method === 'PATCH').body.metadata, { plan: 'new' });
+  });
+
   test('add_lines refuses a paragraph as the section', async () => {
     const sent = stub({
       '/nodes': { nodes: [], hasMore: false },
