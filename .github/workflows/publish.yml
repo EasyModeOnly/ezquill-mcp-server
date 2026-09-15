@@ -1,5 +1,15 @@
-name: Publish to npm
+name: Release (npm package + remote connector)
 
+# ONE release, two destinations: the npm package (the server people run
+# themselves with npx) and the remote connector on Cloud Run (what the plugin,
+# claude.ai and phones talk to). The Claude Code PLUGIN is neither — it is a
+# manifest in plugin/ pointing at the connector's URL, installed from this repo,
+# and nothing here publishes it.
+#
+# The FILE is still publish.yml, deliberately: npm's trusted publisher names
+# this workflow by filename, and renaming it would break publishing with an
+# authentication error that says nothing about the rename.
+#
 # Runs on every push to main, and the DECISION is made by asking the registry.
 #
 # Not on a tag, and not dispatch-only, for the reason ezmodo paid a bug task
@@ -56,7 +66,9 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     outputs:
-      released: ${{ steps.decide.outputs.publish }}
+      # From the STAGE step, not the registry check: see that step for why the
+      # two disagree while a version waits for approval.
+      released: ${{ steps.stage.outputs.released }}
 
     steps:
       - uses: actions/checkout@v4
@@ -114,12 +126,38 @@ jobs:
 
       # A staged version is NOT live. It waits for `npm stage approve`, which
       # takes 2FA, and that is deliberate — see the header.
+      #
+      # # A version already waiting for approval is not a failure
+      #
+      # `npm view` sees only APPROVED versions, so while one waits the check
+      # above says "not on the registry" on every merge, and a second stage is
+      # refused with `409 Cannot stage previously published version`. That was
+      # a red run on every merge between staging and approving — and since the
+      # deploys hang off this job, it also skipped them.
+      #
+      # So that one refusal means "already released, awaiting approval":
+      # released=false, green, and no deploy. Deploying there would ship
+      # whatever merged since the bump to prod under a version number that does
+      # not describe it. Any other failure still fails.
       - name: Stage the release
+        id: stage
         if: steps.decide.outputs.publish == 'true'
-        run: npm stage publish
+        run: |
+          set -uo pipefail
+          if OUT=$(npm stage publish 2>&1); then
+            echo "$OUT"
+            echo "released=true" >> "$GITHUB_OUTPUT"
+          elif echo "$OUT" | grep -q 'Cannot stage previously published version'; then
+            echo "$OUT"
+            echo "released=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::${{ steps.decide.outputs.name }}@${{ steps.decide.outputs.version }} is already staged and waiting for approval — nothing to release. Approve it with npm stage approve."
+          else
+            echo "$OUT"
+            exit 1
+          fi
 
       - name: Say what happens next
-        if: steps.decide.outputs.publish == 'true'
+        if: steps.stage.outputs.released == 'true'
         run: |
           {
             echo "### Staged \`${{ steps.decide.outputs.name }}@${{ steps.decide.outputs.version }}\`"

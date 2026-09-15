@@ -1,4 +1,4 @@
-name: Deploy connector
+name: Deploy remote connector (Cloud Run)
 
 # Runs when a VERSION is released, and by hand.
 #
