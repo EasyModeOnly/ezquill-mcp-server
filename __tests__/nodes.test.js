@@ -147,3 +147,22 @@ describe('aim in the outline', () => {
     assert.equal(post.children[0].alternateTitles, undefined);
   });
 });
+
+describe('word counts are rolled up', () => {
+  test('a section counts its paragraphs, and a container counts everything beneath', () => {
+    const [post] = buildTree([
+      { id: 'p', title: 'Post', nodeType: 'post', order: 0, wordCount: 0 },
+      { id: 'intro', nodeType: 'block', parentId: 'p', order: 0, wordCount: 8, hasProse: true },
+      { id: 's', title: 'Hook', nodeType: 'section', parentId: 'p', order: 0, wordCount: 0 },
+      { id: 'b1', nodeType: 'block', parentId: 's', order: 0, wordCount: 5, hasProse: true },
+      { id: 'b2', nodeType: 'block', parentId: 's', order: 1, hasProse: false },
+    ]);
+    assert.equal(post.children[0].wordCount, 5);
+    assert.equal(post.wordCount, 13);
+  });
+
+  test('prose from before blocks still counts', () => {
+    const [chapter] = buildTree([{ id: 'c', title: 'Ch', nodeType: 'chapter', order: 0, wordCount: 42, hasProse: true }]);
+    assert.equal(chapter.wordCount, 42);
+  });
+});
