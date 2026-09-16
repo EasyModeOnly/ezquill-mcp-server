@@ -12,7 +12,39 @@ const prose = (text) => ({ content: { plainText: text, document: { type: 'doc' }
 
 describe('classify — the container flag is not enough on its own', () => {
   test('a node with its own prose is a scene', () => {
-    assert.equal(classify(node({ hasProse: true })), 'scene');
+    // WORDS, not just a document. The pre-#32 shape, still legal.
+    assert.equal(classify(node({ hasProse: true, wordCount: 42 })), 'scene');
+  });
+
+  test('a freshly planted prose level is unwritten, not a scene', () => {
+    // Every planter seeds a prose level with an EMPTY document, because that is
+    // what makes it writable the day it is made — so `hasProse` is true while
+    // there is nothing in it. Answering "scene" told an agent a project nobody
+    // had touched was fully drafted, and the instructions ask agents to trust
+    // `kind` over word counts, so nothing else would have caught it.
+    assert.equal(classify(node({ nodeType: 'post', hasProse: true, wordCount: 0 })), 'unwritten');
+  });
+
+  test('a post with an empty document and sections under it is a folder', () => {
+    // Observed against prod on 2026-09-15: created by create_project with a
+    // section under it, this came back "scene".
+    const post = node({ id: 'p', nodeType: 'post', hasProse: true, wordCount: 0 });
+    const children = [node({ id: 's', nodeType: 'section', hasProse: true, wordCount: 0 })];
+    assert.equal(classify(post, children), 'folder');
+  });
+
+  test('once the post itself has words it is a scene again', () => {
+    // Its own introduction, above its sections. The app gives this state a
+    // draft pane of its own, so it is a real thing to report rather than an
+    // accident to hide.
+    const post = node({ id: 'p', nodeType: 'post', hasProse: true, wordCount: 120 });
+    assert.equal(classify(post, [node({ id: 's', nodeType: 'section' })]), 'scene');
+  });
+
+  test('an uncountable node keeps the old answer rather than being demoted', () => {
+    // A caller that cannot report wordCount must not have every written scene
+    // silently reclassified.
+    assert.equal(classify(node({ hasProse: true, wordCount: undefined })), 'scene');
   });
 
   test('a section whose prose is in blocks is a SCENE, not a folder', () => {

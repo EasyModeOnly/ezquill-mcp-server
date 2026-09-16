@@ -255,7 +255,7 @@ describe('manage_outline', () => {
     // nodes.metadata is ASSIGNED, not merged. A partial write replaces
     // everything — tags, writingType, every view's block.
     const sent = stub({
-      'GET /nodes/n1': { id: 'n1', metadata: { tags: ['keep'], writingType: 'fiction', plan: 'old' } },
+      'GET /nodes/n1': { id: 'n1', nodeType: 'block', metadata: { tags: ['keep'], writingType: 'fiction', plan: 'old' } },
       'PATCH /nodes/n1': (body) => ({ id: 'n1', ...body }),
     });
 
@@ -313,18 +313,41 @@ describe('manage_outline', () => {
 
   test('set_plan replaces points when given, and leaves them alone when not', async () => {
     let sent = stub({
-      'GET /nodes/n1': { id: 'n1', metadata: { plan: 'old', planPoints: ['keep'] } },
+      'GET /nodes/n1': { id: 'n1', nodeType: 'block', metadata: { plan: 'old', planPoints: ['keep'] } },
       'PATCH /nodes/n1': (body) => ({ id: 'n1', ...body }),
     });
     await run('manage_outline', { projectId: 'p', action: 'set_plan', nodeId: 'n1', plan: 'new' });
     assert.deepEqual(sent.find((r) => r.method === 'PATCH').body.metadata, { plan: 'new', planPoints: ['keep'] });
 
     sent = stub({
-      'GET /nodes/n1': { id: 'n1', metadata: { plan: 'old', planPoints: ['keep'] } },
+      'GET /nodes/n1': { id: 'n1', nodeType: 'block', metadata: { plan: 'old', planPoints: ['keep'] } },
       'PATCH /nodes/n1': (body) => ({ id: 'n1', ...body }),
     });
     await run('manage_outline', { projectId: 'p', action: 'set_plan', nodeId: 'n1', plan: 'new', points: [] });
     assert.deepEqual(sent.find((r) => r.method === 'PATCH').body.metadata, { plan: 'new' });
+  });
+
+  test('set_plan refuses a section, and names what to use instead', async () => {
+    // The mirror of the add_lines guard below. A plan is a PARAGRAPH's outline
+    // line; on a section it is a key nothing reads, and the write SUCCEEDED —
+    // observed on 2026-09-15 writing metadata.plan onto a post without
+    // complaint, which later looks like data somebody meant.
+    const sent = stub({
+      'GET /nodes/s1': { id: 's1', nodeType: 'post', metadata: { tags: ['keep'] } },
+      'PATCH /nodes/s1': (body) => ({ id: 's1', ...body }),
+    });
+
+    await assert.rejects(
+      () => run('manage_outline', { projectId: 'p', action: 'set_plan', nodeId: 's1', plan: 'nope' }),
+      /section, not a paragraph/
+    );
+    // Named, because "that is wrong" without "do this instead" just gets retried.
+    await assert.rejects(
+      () => run('manage_outline', { projectId: 'p', action: 'set_plan', nodeId: 's1', plan: 'nope' }),
+      /set_aim/
+    );
+    // Nothing was written. A refusal that arrives after the PATCH is a lie.
+    assert.ok(!sent.some((r) => r.method === 'PATCH'), 'set_plan must not write to a section');
   });
 
   test('add_lines refuses a paragraph as the section', async () => {

@@ -25,6 +25,21 @@
  *
  * An agent handed raw `hasProse` would call a novel thousands of folders. So
  * `classify` answers the question the writer would recognise instead.
+ *
+ * # And `hasProse` cannot tell a written scene from an empty one either
+ *
+ * It means `document IS NOT NULL`. A prose level is planted WITH an empty
+ * document, so every freshly created chapter, post and section satisfies it
+ * while containing nothing. `classify` asks for words as well.
+ *
+ * The document itself would be the exact test, and it is not available here:
+ * `get_outline` fetches with `omitContent` because a large project is 52.7 MB
+ * with bodies and 5.7 MB without. `wordCount` is in that light projection.
+ *
+ * The one thing this gets wrong is a document holding only an image — no words,
+ * so it reads as unwritten. That is a label, and it cannot cost anybody prose:
+ * `refuseUnmigrated` reads the real document before any append and refuses that
+ * one, so the manuscript is guarded where it matters rather than here.
  */
 
 export const BLOCK = 'block';
@@ -58,7 +73,25 @@ export function classify(node, children = []) {
 
   // Its own prose, the pre-#32 shape and still legal: a chapter may hold prose
   // directly, delegate to child scenes, or both.
-  if (node?.hasProse) return 'scene';
+  //
+  // WORDS, not merely a document. `hasProse` is `document IS NOT NULL`, and an
+  // EMPTY document is what every planter seeds a prose level with — the wizard,
+  // the kickoff and create_project all do it, because that empty document is
+  // what makes a chapter writable the day it is made. Answering "scene" to it
+  // told an agent a project nobody had touched was fully drafted, and the
+  // instructions ask agents to trust `kind` over word counts, so there was
+  // nothing to catch it. A blog post created with a section under it came back
+  // "scene"; so did the untouched section.
+  //
+  // Not fixed at the planting end on purpose. A node with an empty document AND
+  // children is a state the app supports deliberately — the split view gives it
+  // its own draft pane and the binder a "<Post> text" row, and that is the only
+  // way to reach a post's own introduction. Planting NULL would delete a
+  // writing surface to correct a label.
+  //
+  // A missing `wordCount` falls back to the old answer rather than demoting a
+  // node the caller could not count.
+  if (node?.hasProse && (node.wordCount === undefined || node.wordCount > 0)) return 'scene';
 
   const blocks = children.filter(isBlock);
   if (blocks.length > 0) {
