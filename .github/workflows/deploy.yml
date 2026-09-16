@@ -62,6 +62,9 @@ jobs:
           echo "project=ezquill-${{ inputs.environment }}" >> "$GITHUB_OUTPUT"
           echo "service=ezquill-mcp-${{ inputs.environment }}" >> "$GITHUB_OUTPUT"
           echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          # The version being deployed, read from the file the running server
+          # reads it from. A literal here would be a second place to bump.
+          echo "version=$(node -p 'require("./package.json").version')" >> "$GITHUB_OUTPUT"
 
       # PREREQUISITE, and it is not a code change: the Workload Identity pool
       # must trust THIS repository. It was configured for EasyModeOnly/ezquill,
@@ -109,14 +112,19 @@ jobs:
             exit 1
           fi
 
+      # --update-env-vars, NOT --set-env-vars. The service's environment is
+      # owned by Terraform (the API base url, the issuer); --set-env-vars
+      # REPLACES the whole set, so it would deploy a revision that knows its own
+      # sha and nothing else. --update merges this one key in.
       - name: Deploy
         run: |
           gcloud run deploy "${{ steps.env.outputs.service }}" \
             --image "${AR_REGISTRY}/${IMAGE_NAME}:${{ steps.env.outputs.sha }}" \
+            --update-env-vars "EZQUILL_BUILD_SHA=${{ steps.env.outputs.sha }}" \
             --region "$REGION" --project "${{ steps.env.outputs.project }}" --quiet
 
       # Verify the CONTRACT, not just that something answered. A 200 from
-      # /health only proves a container started; these three prove the thing a
+      # /health only proves a container started; these prove the thing a
       # connector actually depends on.
       - name: Verify
         run: |
@@ -124,6 +132,34 @@ jobs:
                 --region "$REGION" --project "${{ steps.env.outputs.project }}" \
                 --format='value(status.url)')
           echo "deployed: $url"
+
+          # The build actually being served, before anything else. `gcloud run
+          # deploy` returning 0 says a revision was created and accepted, not
+          # that requests are reaching it — and a silently stale revision is
+          # precisely what went unnoticed on 2026-09-15, when the connector kept
+          # answering with the previous tool surface and nothing was red.
+          #
+          # Polled rather than asked once: traffic moves to a new revision a
+          # moment after the deploy call returns, and a single immediate request
+          # would fail this job for a race rather than for a stale deploy.
+          want_version='${{ steps.env.outputs.version }}'
+          want_sha='${{ steps.env.outputs.sha }}'
+          deadline=$(( $(date +%s) + 120 ))
+          while :; do
+            body=$(curl -fsS --max-time 10 "$url/version" || echo '{}')
+            got_version=$(printf '%s' "$body" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(String(JSON.parse(s).version??""))}catch{}})')
+            got_sha=$(printf '%s' "$body" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(String(JSON.parse(s).sha??""))}catch{}})')
+            if [ "$got_version" = "$want_version" ] && [ "$got_sha" = "$want_sha" ]; then
+              echo "serving $got_version ($got_sha)"
+              break
+            fi
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "::error::$url is serving version='$got_version' sha='$got_sha', want version='$want_version' sha='$want_sha'."
+              echo "::error::The deploy reported success but the running revision is not the one this job built. Check the revision list and traffic split for ${{ steps.env.outputs.service }}."
+              exit 1
+            fi
+            sleep 5
+          done
 
           code=$(curl -s -o /dev/null -w '%{http_code}' "$url/health")
           [ "$code" = "200" ] || { echo "::error::/health returned $code"; exit 1; }
@@ -140,4 +176,4 @@ jobs:
           code=$(curl -s -o /dev/null -w '%{http_code}' "$url/.well-known/oauth-protected-resource/mcp")
           [ "$code" = "200" ] || { echo "::error::protected-resource metadata returned $code"; exit 1; }
 
-          echo "health, 401 challenge and protected-resource metadata all good"
+          echo "version, health, 401 challenge and protected-resource metadata all good"
