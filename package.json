@@ -29,7 +29,10 @@
   "scripts": {
     "test": "node --test \"__tests__/**/*.test.js\"",
     "start": "node src/index.js",
-    "start:http": "node src/http.js"
+    "start:http": "node src/http.js",
+    "sync-plugin-version": "node scripts/sync-plugin-version.mjs",
+    "fingerprint": "node scripts/fingerprint.mjs",
+    "version": "node scripts/sync-plugin-version.mjs && node scripts/fingerprint.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0"

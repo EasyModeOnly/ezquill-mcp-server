@@ -1,0 +1,206 @@
+{
+  "version": "0.3.0",
+  "tools": {
+    "authenticate": {
+      "params": [
+        "includeDelete"
+      ]
+    },
+    "create_project": {
+      "params": [
+        "genre",
+        "structure",
+        "synopsis",
+        "title",
+        "writingType"
+      ]
+    },
+    "get_entity": {
+      "params": [
+        "entityId",
+        "projectId"
+      ]
+    },
+    "get_outline": {
+      "params": [
+        "parentId",
+        "projectId"
+      ]
+    },
+    "get_project": {
+      "params": [
+        "projectId"
+      ]
+    },
+    "get_timeline": {
+      "params": [
+        "mode",
+        "nodeId",
+        "projectId"
+      ]
+    },
+    "list_entities": {
+      "params": [
+        "appearsInNode",
+        "kind",
+        "projectId",
+        "role",
+        "search",
+        "tag"
+      ]
+    },
+    "list_feedback": {
+      "params": [
+        "includeResolved",
+        "nodeId",
+        "projectId"
+      ]
+    },
+    "list_projects": {
+      "params": [
+        "limit",
+        "search",
+        "shared",
+        "status"
+      ]
+    },
+    "manage_cast": {
+      "params": [
+        "action",
+        "entityId",
+        "nodeId",
+        "projectId",
+        "role"
+      ],
+      "actions": [
+        "link",
+        "unlink"
+      ]
+    },
+    "manage_entity": {
+      "params": [
+        "action",
+        "description",
+        "entityId",
+        "inverseKind",
+        "kind",
+        "name",
+        "profile",
+        "projectId",
+        "relationId",
+        "relationKind",
+        "tags",
+        "toEntityId"
+      ],
+      "actions": [
+        "create",
+        "delete",
+        "relate",
+        "restore",
+        "unrelate",
+        "update"
+      ]
+    },
+    "manage_feedback": {
+      "params": [
+        "action",
+        "body",
+        "commentId",
+        "nodeId",
+        "projectId",
+        "quote"
+      ],
+      "actions": [
+        "comment",
+        "reply",
+        "resolve",
+        "unresolve"
+      ]
+    },
+    "manage_outline": {
+      "params": [
+        "action",
+        "aim",
+        "alternateTitles",
+        "lines",
+        "nodeId",
+        "nodes",
+        "order",
+        "parentId",
+        "plan",
+        "points",
+        "projectId",
+        "status",
+        "title"
+      ],
+      "actions": [
+        "add",
+        "add_lines",
+        "delete",
+        "move",
+        "rename",
+        "restore",
+        "set_aim",
+        "set_alternate_titles",
+        "set_plan",
+        "set_status"
+      ]
+    },
+    "manage_timeline": {
+      "params": [
+        "action",
+        "characterIds",
+        "description",
+        "eventId",
+        "locationIds",
+        "mode",
+        "nodeId",
+        "projectId",
+        "storyDate",
+        "title",
+        "type"
+      ],
+      "actions": [
+        "create",
+        "delete",
+        "restore",
+        "update"
+      ]
+    },
+    "read_scene": {
+      "params": [
+        "nodeId",
+        "projectId"
+      ]
+    },
+    "search_project": {
+      "params": [
+        "limit",
+        "projectId",
+        "query",
+        "sourceTypes"
+      ]
+    },
+    "sign_out": {
+      "params": []
+    },
+    "write_draft": {
+      "params": [
+        "action",
+        "blockId",
+        "nodeId",
+        "note",
+        "paragraphs",
+        "projectId",
+        "quote",
+        "replacement",
+        "text"
+      ],
+      "actions": [
+        "append",
+        "fill_plan",
+        "revise"
+      ]
+    }
+  }
+}

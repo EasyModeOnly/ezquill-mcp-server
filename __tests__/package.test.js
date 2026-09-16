@@ -133,10 +133,29 @@ describe('the Claude Code plugin manifest', () => {
   });
 
   test('the marketplace entry does not drift from the plugin', () => {
-    // These two are the plugin's OWN version and are deliberately no longer
-    // tied to package.json — the plugin ships a URL, not a package, so the
-    // npm version has nothing to say about it.
     assert.equal(marketplace.plugins[0].version, plugin.version, 'version');
     assert.equal(marketplace.plugins[0].name, plugin.name, 'name');
+  });
+
+  test('its version tracks the package, because that is the signal to reconnect', () => {
+    // This test used to say the opposite — that the plugin's version was
+    // deliberately untied from npm, since the plugin ships a URL rather than a
+    // package, so the npm version had nothing to say about it.
+    //
+    // That reasoning was about the plugin's CONTENTS, and the version is not
+    // for its contents. The manifest is a pointer at a URL and almost never
+    // changes; its version number is the only thing that tells an already
+    // installed machine to go and look again. Untied, it never moved: 0.3.0
+    // added three actions with both manifests left at 0.2.1, so
+    // `/plugin marketplace update` had nothing to show and the new tools
+    // reached only whoever happened to reconnect.
+    //
+    // `npm version` now bumps all three together (the `version` lifecycle
+    // script). This is the guard that a hand-edited release cannot skip it.
+    assert.equal(
+      plugin.version,
+      pkg.version,
+      `plugin.json is ${plugin.version}, package.json is ${pkg.version} — run npm run sync-plugin-version`
+    );
   });
 });

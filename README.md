@@ -159,10 +159,15 @@ install but the manifest. Claude Code runs OAuth against the connector, which
 is the branded ezQuill sign-in and consent flow.
 
 It ships no version pin, and that is the improvement. The plugin used to run
-the published npm package pinned to an exact version, which meant three numbers
-had to move together and a test existed only to stop them drifting. A URL has
-no version: a fix reaches every installed plugin on the next deploy rather than
-on the next plugin update.
+the published npm package pinned to an exact version, which meant a fix reached
+an installed plugin only when somebody updated the plugin. A URL has no
+version: a fix reaches every installed plugin on the next deploy.
+
+**Its own `version` field is a different thing, and it does track npm.** It is
+not a statement about the manifest's contents — the manifest is three lines of
+URL and client id and hardly ever changes. It is the only signal an *already
+installed* machine gets that anything changed on the other end. See
+"Releasing".
 
 **It carries the pre-registered OAuth client id, and without that it cannot
 authenticate at all.** An MCP client with no client id tries Dynamic Client
@@ -211,8 +216,39 @@ A release has two destinations, and neither is the plugin:
 
 The **plugin** is `plugin/.claude-plugin/plugin.json`: a manifest pointing at
 the remote connector's URL, installed from this repository. Nothing publishes
-it, and it only changes when the URL or OAuth client does — which is why a fix
-reaches plugin users through a deploy, not a plugin update.
+it, and its *contents* only change when the URL or OAuth client does — which is
+why a fix reaches plugin users through a deploy, not a plugin update.
+
+### Cut a release with `npm version`
+
+```bash
+npm version minor     # or patch / major
+git push --follow-tags
+```
+
+**Use it rather than editing `package.json` by hand.** A `version` lifecycle
+script rewrites `plugin/.claude-plugin/plugin.json`,
+`.claude-plugin/marketplace.json` and `__tests__/tool-surface.json` and stages
+them, so all four move in the release commit. Tests fail if they disagree, so a
+hand-edited bump is caught rather than shipped — but it is caught on your
+branch, which is a worse place to find out than not having to think about it.
+
+**Why the plugin version has to move.** 0.3.0 added three outline actions with
+both manifests left at 0.2.1. Nothing on any machine had a signal: `/plugin
+marketplace update` had nothing to show, and the new actions reached whoever
+happened to reconnect for unrelated reasons — Claude Code went on serving the
+old tool definitions on two machines for a day, with nothing red anywhere. The
+server was right, the package was right, and the only thing wrong was a number
+in a file that describes neither.
+
+**And `__tests__/tool-surface.json` is what makes that stick.** It records the
+tool names, action enums and top-level parameter names the released version
+serves. Change any of them and the test fails; `npm run fingerprint` refuses to
+re-record until the version has been bumped, so the only way back to green is
+the release that tells installed machines to look again. It deliberately
+ignores descriptions and types — a test that fails for a reworded sentence gets
+regenerated without being read, which is the reflex that defeats it on the day
+it matters.
 
 `publish.yml` keeps its filename because npm's trusted publisher is configured
 against it by name.
