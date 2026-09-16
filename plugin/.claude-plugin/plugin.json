@@ -2,7 +2,7 @@
   "name": "ezquill",
   "displayName": "ezQuill",
   "description": "Read and write a writer's manuscript, story world and timeline in ezQuill.",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "author": {
     "name": "EasyModeOnly",
     "url": "https://github.com/EasyModeOnly"
