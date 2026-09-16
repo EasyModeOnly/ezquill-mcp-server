@@ -2,14 +2,18 @@ import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
+import { readFileSync } from 'node:fs';
+
+const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 
 /**
  * The remote transport's contract, exercised against the real process.
  *
- * These are the three things the deploy verification checks in production, so
- * they are worth pinning here where a failure is cheap: an unauthenticated POST
- * must 401 with a pointer to the metadata document, GET must explain the 405
- * rather than look broken, and /health must answer without touching the API.
+ * These are the things the deploy verification checks in production, so they
+ * are worth pinning here where a failure is cheap: an unauthenticated POST must
+ * 401 with a pointer to the metadata document, GET must explain the 405 rather
+ * than look broken, /health must answer without touching the API, and /version
+ * must report the build without a token.
  */
 let proc;
 let base;
@@ -110,6 +114,44 @@ describe('the remote transport', () => {
 
     const followed = await fetch(advertised.replace(/^https:/, 'http:'));
     assert.equal(followed.status, 200, 'the advertised metadata url must resolve');
+  });
+
+  test('version answers without a token, and names the build', async () => {
+    // No Authorization header on purpose. The whole value of this endpoint is
+    // that it answers the one question a token cannot help you ask — which
+    // build is running — so a 401 here would leave it no better than /mcp.
+    const res = await fetch(`${base}/version`);
+    assert.equal(res.status, 200);
+
+    const body = await res.json();
+    assert.equal(body.name, 'ezquill-mcp-server');
+    assert.equal(body.version, pkg.version);
+    // Nothing set EZQUILL_BUILD_SHA for this process, and an unknown sha must
+    // read as unknown rather than as a plausible-looking string: the deploy
+    // check compares this field for equality against the sha it just deployed.
+    assert.equal(body.sha, null);
+  });
+
+  test('version reports the sha the deploy handed it', async () => {
+    // Read from the environment, not baked into the image — deploy.yml pushes
+    // one image per sha and also moves `:latest`, so only the deploy knows
+    // what is actually running here.
+    const child = spawn(process.execPath, ['src/http.js'], {
+      env: { ...process.env, PORT: '0', EZQUILL_BUILD_SHA: 'deadbee' },
+      stdio: ['ignore', 'ignore', 'pipe'],
+    });
+    try {
+      let url;
+      for await (const chunk of child.stderr) {
+        const match = String(chunk).match(/listening on :(\d+)/);
+        if (match) { url = `http://127.0.0.1:${match[1]}/version`; break; }
+      }
+      assert.ok(url, 'server did not report a port');
+      assert.equal((await (await fetch(url)).json()).sha, 'deadbee');
+    } finally {
+      child.kill('SIGTERM');
+      await once(child, 'exit').catch(() => {});
+    }
   });
 
   test('an unknown path is 404, not a hung request', async () => {

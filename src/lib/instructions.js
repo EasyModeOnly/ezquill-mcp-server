@@ -1,3 +1,5 @@
+import { SERVER_VERSION } from './version.js';
+
 /**
  * The string every client sees on every session, whether or not it installed a
  * plugin or read any documentation.
@@ -9,8 +11,17 @@
  *
  * Each line below exists because getting it wrong produces a plausible,
  * wrong answer rather than an error.
+ *
+ * The version line is there for a different reason: a STALE CLIENT is
+ * otherwise invisible. On 2026-09-15 Claude Code kept serving the 0.2.1 tool
+ * definitions on two machines while the server was 0.3.0, and nothing inside a
+ * session could say so — the only proof was calling a new action and reading
+ * the error. `serverInfo.version` carries the same fact, but no agent can read
+ * it; this string every agent gets. One line, because it is charged to every
+ * session.
  */
 export const INSTRUCTIONS = `ezQuill holds a writer's manuscript, story world and timeline.
+You are talking to ezquill-mcp-server ${SERVER_VERSION}. If a tool or action named here is missing, your client is caching an older tool list — reconnect it.
 
 Reading:
 - Prose lives in paragraph-level "block" rows, so a scene's own body is usually

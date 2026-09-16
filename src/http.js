@@ -26,9 +26,10 @@
 import { createServer as createHttpServer } from 'node:http';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 
-import { createServer } from './lib/create-server.js';
+import { createServer, SERVER_NAME } from './lib/create-server.js';
 import { DEFAULT_SCOPES } from './lib/oauth.js';
 import { withRequest } from './lib/request-context.js';
+import { SERVER_VERSION, BUILD_SHA } from './lib/version.js';
 
 const PORT = Number(process.env.PORT || 8080);
 const MCP_PATH = process.env.MCP_PATH || '/mcp';
@@ -69,6 +70,20 @@ const http = createHttpServer(async (req, res) => {
   // marked unhealthy, and it makes a 404 from an ingress rule indistinguishable
   // from a missing route.
   if (url.pathname === '/health') return send(res, 200, { status: 'ok' });
+
+  // Which build is this? Unauthenticated, because everything else here needs a
+  // token and that is what made the question expensive: answering "is the
+  // deployed connector the new one?" on 2026-09-15 took a 401 from /mcp, then
+  // `gcloud run revisions list`, then pulling the image and grepping it.
+  //
+  // Nothing here is private. The version is already on the npm registry and in
+  // the repo's tags, the sha is a public commit, and the name is in every
+  // serverInfo this process sends. It says nothing about the caller and
+  // nothing about anybody's project — it is a fact about THIS PROCESS, which
+  // is the one question a token cannot help you ask.
+  if (url.pathname === '/version') {
+    return send(res, 200, { name: SERVER_NAME, version: SERVER_VERSION, sha: BUILD_SHA });
+  }
 
   // RFC 9728 protected-resource metadata: how a client discovers WHICH
   // authorization server guards this resource, before it has any token.

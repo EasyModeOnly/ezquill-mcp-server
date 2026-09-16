@@ -93,4 +93,15 @@ describe('instructions', () => {
       assert.ok(INSTRUCTIONS.includes(fragment), `instructions must mention ${fragment}`);
     }
   });
+
+  test('names the running version, so a stale client is visible in-session', async () => {
+    // A client caching an older tool list looks exactly like a server that
+    // never had the tool. Asserted against package.json rather than a literal,
+    // for the same reason SERVER_VERSION is read from it.
+    const { SERVER_VERSION } = await import('../src/lib/version.js');
+    assert.ok(
+      INSTRUCTIONS.includes(SERVER_VERSION),
+      `instructions must name the running version (${SERVER_VERSION})`
+    );
+  });
 });
