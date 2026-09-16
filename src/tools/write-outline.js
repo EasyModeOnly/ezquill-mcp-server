@@ -18,6 +18,7 @@ import { call } from '../lib/api.js';
 import { ToolError, Code } from '../lib/errors.js';
 import { levelsFor } from '../lib/writing-types.js';
 import { refuseUnmigrated, sectionBlocks } from '../lib/sections.js';
+import { isBlock } from '../lib/nodes.js';
 
 export const tools = [
   {
@@ -44,7 +45,8 @@ export const tools = [
           type: 'string',
           description:
             'The node to act on. Required by every action except add. For add_lines, the ' +
-            'section, chapter, scene or post the lines go in.',
+            'section, chapter, scene or post the lines go in. For set_plan, one PARAGRAPH ' +
+            'of one — a section\'s own thesis is set_aim.',
         },
         lines: {
           type: 'array',
@@ -238,6 +240,20 @@ export const tools = [
           // sub-object, it replaces the WHOLE blob: tags, writingType and every
           // view's block go with it. Read the row and rebuild from it.
           const node = await call(`${base}/${args.nodeId}`);
+          // A plan is a PARAGRAPH's outline line. On a section it is a key
+          // nothing reads — no view, no prompt, no export — and the write
+          // succeeds, so it later looks like data somebody meant. `add_lines`
+          // already refuses a paragraph passed as the section; this is the same
+          // guard from the other direction, and it costs nothing because the
+          // row has just been read for the metadata rebuild.
+          if (!isBlock(node)) {
+            throw new ToolError(
+              Code.REQUEST_FAILED,
+              'That id is a section, not a paragraph, and a plan belongs to a paragraph. ' +
+                'Use set_aim for what a section has to argue or do, add_lines to give it ' +
+                'planned paragraphs, or pass the id of one of its paragraphs.'
+            );
+          }
           const metadata = { ...(node.metadata ?? {}), plan: args.plan };
           if (Array.isArray(args.points)) {
             const points = cleanPoints(args.points);
