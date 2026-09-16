@@ -205,6 +205,76 @@ checkout into everybody's plugin cache.
 It is still the way to run the connector offline, against a dev stack, or as a
 self-hosted process: see "Running it" above, and add it with `claude mcp add`.
 
+### When the marketplace will not refresh
+
+```
+/plugin marketplace update ezquill
+→ 1 marketplace could not be refreshed
+```
+
+**That message is about a directory on your own machine, not about GitHub and
+not about this repository.** A marketplace is an ordinary git clone at
+`~/.claude/plugins/marketplaces/ezquill`, and "refresh" is a git operation
+inside it. When the clone gets into a state git will not fast-forward out of,
+the refresh fails and the message says none of that.
+
+**First, the reassuring part: a stale manifest is not stale tools.** The plugin
+declares a URL. Every tool, and every fix, comes from the hosted connector at
+`https://mcp.ezquill.com/mcp`, so a marketplace that will not update leaves you
+with current tools and an out-of-date version number. Check what you are
+actually talking to — it needs no token:
+
+```bash
+curl https://mcp.ezquill.com/version
+→ {"name":"ezquill-mcp-server","version":"0.4.0","sha":"abc1234"}
+```
+
+A **404** there is itself an answer: `/version` arrives in 0.4.0, so a
+connector that does not serve it predates that release. From 0.4.0 the server
+also names its version in the instructions it sends at the start of every
+session, so you can simply ask the agent which connector it is talking to.
+
+**Tell a local problem apart from a network one** before changing anything:
+
+```bash
+git ls-remote https://github.com/EasyModeOnly/ezquill-mcp-server
+```
+
+| outcome | means |
+| --- | --- |
+| a list of refs | GitHub is fine and reachable. The problem is the local clone — carry on below. |
+| hangs, or a TLS/DNS/proxy error | Network or proxy. Fixing the clone will not help. |
+| `repository not found` | An auth or SSO problem reaching a repo that is in fact public — check for a credential helper or a corporate proxy rewriting the request. |
+
+**Then look at the clone itself:**
+
+```bash
+git -C ~/.claude/plugins/marketplaces/ezquill status -sb
+```
+
+`## main...origin/main [ahead 30]` is the tell, and it is what this machine
+actually showed. A clone that has only ever been pulled from cannot be ahead of
+anything. It means the remote-tracking ref is stale — here `origin/main` was
+still pointing at the 0.1.1 release merge while the checkout had moved on — so
+git compares against a commit from months ago and reports the difference as
+local work it must not discard. Divergence, a detached HEAD, or a genuine local
+modification produce the same refusal.
+
+**The recovery,** which is cheap because there is nothing in that clone worth
+keeping — it is a copy of a public repository, and no configuration of yours
+lives in it:
+
+```
+/plugin marketplace remove ezquill
+/plugin marketplace add EasyModeOnly/ezquill-mcp-server
+/plugin install ezquill@ezquill
+/reload-plugins
+```
+
+Then reconnect the server with `/mcp`. The reconnect is the step worth not
+skipping: it is what fetches the tool list again, and a session that stays
+connected keeps serving the definitions it started with.
+
 ## Releasing
 
 A release has two destinations, and neither is the plugin:
