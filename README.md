@@ -205,6 +205,47 @@ checkout into everybody's plugin cache.
 It is still the way to run the connector offline, against a dev stack, or as a
 self-hosted process: see "Running it" above, and add it with `claude mcp add`.
 
+### Updating the plugin does not update an open session's tools
+
+```
+/plugin marketplace update ezquill
+→ ✔ Updated 1 marketplace (1 plugin bumped)
+/reload-plugins
+→ Reloaded: 5 plugins · 2 plugin MCP servers
+```
+
+**Both of those succeeded and neither re-read the tool list.** A session open
+across a connector deploy keeps the tool definitions it connected with, and
+nothing says so — the commands are telling the truth about what they did, which
+is update a manifest. The manifest is a URL. Tool definitions come from the
+**server**, fetched once, when the client connects.
+
+Reconnect the server with `/mcp`, or start a new session.
+
+**Only descriptions go stale, never behaviour.** The server runs the deployed
+code whatever the client believes, so a client holding an old tool list is
+*told* the wrong thing — a description missing a rule, an action it does not
+know exists — rather than *made to do* the wrong thing. A session on 0.3.0's
+definitions still gets 0.4.0's refusals, because the guards are server-side.
+That is the difference between an annoyance and a data problem, and it is why
+this is documented rather than fixed with a version pin.
+
+**To find out which side is behind**, from 0.4.0:
+
+```bash
+curl https://mcp.ezquill.com/version
+→ {"name":"ezquill-mcp-server","version":"0.4.0","sha":"78c0d74"}
+```
+
+and ask the agent which version it is talking to — the server names itself in
+the instructions it sends at the start of every session. The two disagreeing is
+the whole diagnosis. Note the instructions are *also* taken at connect time, so
+a stale session reports the stale version confidently; `/version` is the one
+answer that cannot be out of date, because it is fetched when you ask.
+
+This was worth a day on 2026-09-15, when two machines went on offering the
+0.2.1 tools against a 0.3.0 server with nothing anywhere disagreeing.
+
 ### When the marketplace will not refresh
 
 ```
@@ -220,13 +261,15 @@ the refresh fails and the message says none of that.
 
 **First, the reassuring part: a stale manifest is not stale tools.** The plugin
 declares a URL. Every tool, and every fix, comes from the hosted connector at
-`https://mcp.ezquill.com/mcp`, so a marketplace that will not update leaves you
-with current tools and an out-of-date version number. Check what you are
-actually talking to — it needs no token:
+`https://mcp.ezquill.com/mcp`, so a marketplace that will not update costs you a
+version number rather than a capability — the next session to connect gets the
+current tools regardless. (A session already open is a separate matter, and not
+this one: see "Updating the plugin does not update an open session's tools".)
+Check what you are actually talking to — it needs no token:
 
 ```bash
 curl https://mcp.ezquill.com/version
-→ {"name":"ezquill-mcp-server","version":"0.4.0","sha":"abc1234"}
+→ {"name":"ezquill-mcp-server","version":"0.4.0","sha":"78c0d74"}
 ```
 
 A **404** there is itself an answer: `/version` arrives in 0.4.0, so a
@@ -271,9 +314,9 @@ lives in it:
 /reload-plugins
 ```
 
-Then reconnect the server with `/mcp`. The reconnect is the step worth not
-skipping: it is what fetches the tool list again, and a session that stays
-connected keeps serving the definitions it started with.
+Then reconnect the server with `/mcp` — see "Updating the plugin does not
+update an open session's tools" above for why that step is not optional, and
+why none of the four commands before it is what fetches the tool list.
 
 ## Releasing
 
