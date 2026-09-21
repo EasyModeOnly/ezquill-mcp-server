@@ -37,6 +37,10 @@ Reading:
   of where the passage sits — it is not the writer's prose and must never be
   presented as a quotation.
 - Entity profiles are already resolved to the writer's own edits.
+- Check a sense or find an antonym with lookup_word rather than from memory.
+  Synonyms are grouped by meaning: pick from the sense that matches the
+  sentence. An antonym is never a synonym. list_word_favorites shows the
+  writer's starred words; they are theirs, and read-only here.
 
 Changing things:
 - write_draft adds prose; it never replaces it. To change words that are

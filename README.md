@@ -22,6 +22,8 @@ a person already wrote becomes a suggested edit they accept in ezQuill — see
 | `get_entity` | one of them in full, with relations and appearances |
 | `get_timeline` | story chronology, or the writer's own milestones |
 | `list_feedback` | open comments and suggested edits |
+| `lookup_word` | a word's senses, synonyms by meaning, antonyms, forms — the writer's dictionary |
+| `list_word_favorites` | the words the writer has starred, with their notes |
 | `authenticate`, `sign_out` | signing in. **Local only** — over a connector the client owns OAuth |
 
 ### Writing

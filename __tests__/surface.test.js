@@ -28,6 +28,7 @@ describe('the tool surface', () => {
     const readOnly = new Set([
       'list_projects', 'get_project', 'search_project', 'get_outline', 'read_scene',
       'list_entities', 'get_entity', 'get_timeline', 'list_feedback',
+      'lookup_word', 'list_word_favorites',
     ]);
 
     for (const tool of TOOLS) {

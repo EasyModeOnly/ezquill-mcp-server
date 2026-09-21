@@ -38,6 +38,11 @@ export const REMOTE_SAFE = new Set([
   'get_entity',
   'get_timeline',
   'list_feedback',
+  // The dictionary. Both only call the ezQuill API: the lexicon is reference
+  // data, and the favourites are the caller's own, read-only. Starring is not
+  // offered at all — a delegated token may never write under /me.
+  'lookup_word',
+  'list_word_favorites',
   // Writes. Remote-safe for the same reason the reads are: every one is a call
   // to the ezQuill API, constrained by the consent scopes on the caller's own
   // token. Nothing here touches this machine.
