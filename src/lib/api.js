@@ -19,8 +19,15 @@ export function baseUrl() {
 /**
  * One API call.
  *
- * @param {string} path under /api/v1, leading slash included
- * @param {{method?: string, body?: unknown, query?: Record<string, unknown>}} [opts]
+ * @param {string} path under /api/v1 (or under the API root with `root`),
+ *   leading slash included
+ * @param {{method?: string, body?: unknown, query?: Record<string, unknown>, root?: boolean}} [opts]
+ *
+ * `root: true` drops the `/api/v1` prefix. The API registers the caller's own
+ * account routes at its ROOT — `/me`, `/me/inbox`, `/me/words` — not under
+ * `/api/v1`, and a wrong prefix is not an error anyone sees: it is a 404, which
+ * a tool reports as "not found" about something that exists. So the choice is
+ * made per call, visibly, rather than guessed from the path.
  */
 export async function call(path, opts = {}) {
   // The ONE place a credential is read. Everything else — every tool, every
@@ -33,7 +40,7 @@ export async function call(path, opts = {}) {
     );
   }
 
-  const url = new URL(`${baseUrl()}/api/v1${path}`);
+  const url = new URL(`${baseUrl()}${opts.root ? '' : '/api/v1'}${path}`);
   for (const [key, value] of Object.entries(opts.query ?? {})) {
     if (value === undefined || value === null || value === '') continue;
     // Repeatable filters (kind, tag, status, nodeType) arrive as arrays and the
@@ -57,9 +64,18 @@ export async function call(path, opts = {}) {
   if (response.status === 204) return null;
 
   if (!response.ok) {
-    throw new ToolError(codeForStatus(response.status), await failureMessage(response), {
+    const { message, body } = await readFailure(response);
+    const err = new ToolError(codeForStatus(response.status), message, {
       status: response.status,
     });
+    // The parsed body rides on the error for the few callers whose failure
+    // body IS the answer — a dictionary 404 carries the spelling suggestions.
+    // A property rather than `detail`, because detail is spread into the tool
+    // result, and no other tool should start echoing raw API bodies at an
+    // agent. A caller that wants it catches, checks `detail.status`, and reads
+    // it, the same way search_project already handles its 503.
+    err.body = body;
+    throw err;
   }
 
   return response.json();
@@ -70,16 +86,20 @@ export async function call(path, opts = {}) {
  * text rather than inventing a message, so a transcript never shows a
  * reassuring sentence this code made up.
  */
-async function failureMessage(response) {
+async function readFailure(response) {
+  let body;
   try {
-    const body = await response.json();
+    body = await response.json();
     const message = body?.error?.message;
-    if (typeof message === 'string' && message) return message;
+    if (typeof message === 'string' && message) return { message, body };
   } catch {
     // A non-JSON body (a proxy's HTML error page) is not worth reporting in
     // full; the status is the useful part.
   }
-  return `ezQuill API returned ${response.status} ${response.statusText}`.trim();
+  return {
+    message: `ezQuill API returned ${response.status} ${response.statusText}`.trim(),
+    body,
+  };
 }
 
 /**

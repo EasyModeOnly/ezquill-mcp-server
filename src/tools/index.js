@@ -10,6 +10,7 @@ import { tools as outline } from './outline.js';
 import { tools as storyWorld } from './story-world.js';
 import { tools as timeline } from './timeline.js';
 import { tools as feedback } from './feedback.js';
+import { tools as dictionary } from './dictionary.js';
 import { tools as writeProjects } from './write-projects.js';
 import { tools as writeOutline } from './write-outline.js';
 import { tools as writeDraft } from './write-draft.js';
@@ -25,6 +26,9 @@ export const TOOLS = [
   ...storyWorld,
   ...timeline,
   ...feedback,
+  // Last among the reads: the dictionary is reference, not the manuscript —
+  // something an agent reaches for mid-draft, not where it starts.
+  ...dictionary,
   // Writes after reads, because that is the order the work happens in: an
   // agent that changes a manuscript it has not read is the thing this surface
   // is shaped to discourage.

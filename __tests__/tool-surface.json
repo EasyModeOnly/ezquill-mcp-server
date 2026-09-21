@@ -1,5 +1,5 @@
 {
-  "version": "0.4.0",
+  "version": "0.5.0",
   "tools": {
     "authenticate": {
       "params": [
@@ -62,6 +62,20 @@
         "search",
         "shared",
         "status"
+      ]
+    },
+    "list_word_favorites": {
+      "params": [
+        "limit",
+        "offset",
+        "pos",
+        "q",
+        "word"
+      ]
+    },
+    "lookup_word": {
+      "params": [
+        "word"
       ]
     },
     "manage_cast": {
