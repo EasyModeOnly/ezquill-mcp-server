@@ -34,9 +34,12 @@ export const SERVER_VERSION = JSON.parse(
  * this against the sha it just deployed, so anything unequal — including null —
  * is correctly a failure.
  *
- * It arrives as an env var set by the DEPLOY rather than baked in at build
- * time, because deploy.yml pushes one image per sha and also moves `:latest`;
- * the question this answers is "what is running here now", which only the
- * deploy knows.
+ * It arrives as an env var BAKED INTO THE IMAGE at build time (see the
+ * Dockerfile). It used to be set on the service by the deploy, on the grounds
+ * that only the deploy knows what is running; but the service's environment is
+ * Terraform's, and every apply removed it (ezquill #372). An image built from a
+ * commit is that commit wherever it runs — a `:latest` pull included, since
+ * `:latest` and `:<sha>` are the same build — so the image answers the
+ * question as well as the deploy did, and nothing else owns the value.
  */
 export const BUILD_SHA = process.env.EZQUILL_BUILD_SHA || null;

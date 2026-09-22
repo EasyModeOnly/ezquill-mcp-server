@@ -83,6 +83,7 @@ jobs:
       - name: Build and push
         run: |
           docker build \
+            --build-arg "EZQUILL_BUILD_SHA=${{ steps.env.outputs.sha }}" \
             -t "${AR_REGISTRY}/${IMAGE_NAME}:${{ steps.env.outputs.sha }}" \
             -t "${AR_REGISTRY}/${IMAGE_NAME}:latest" .
           docker push "${AR_REGISTRY}/${IMAGE_NAME}:${{ steps.env.outputs.sha }}"
@@ -112,15 +113,23 @@ jobs:
             exit 1
           fi
 
-      # --update-env-vars, NOT --set-env-vars. The service's environment is
-      # owned by Terraform (the API base url, the issuer); --set-env-vars
-      # REPLACES the whole set, so it would deploy a revision that knows its own
-      # sha and nothing else. --update merges this one key in.
+      # The sha is baked into the image (see the Dockerfile), and the service's
+      # environment is Terraform's alone (the API base url, the issuer). This
+      # deploy used to add EZQUILL_BUILD_SHA with --update-env-vars, and every
+      # Terraform apply then removed it, rolling a revision that did not know
+      # its own commit (ezquill #372).
+      #
+      # --remove-env-vars, because a SERVICE variable overrides the image's ENV
+      # and `gcloud run deploy` keeps the ones already set: without it, a
+      # service deployed by the old workflow would go on reporting its old sha
+      # over the new image's, and Verify below would fail. It is a no-op on a
+      # service that no longer has the variable, and it is what Terraform wants
+      # too, so the two stop disagreeing.
       - name: Deploy
         run: |
           gcloud run deploy "${{ steps.env.outputs.service }}" \
             --image "${AR_REGISTRY}/${IMAGE_NAME}:${{ steps.env.outputs.sha }}" \
-            --update-env-vars "EZQUILL_BUILD_SHA=${{ steps.env.outputs.sha }}" \
+            --remove-env-vars EZQUILL_BUILD_SHA \
             --region "$REGION" --project "${{ steps.env.outputs.project }}" --quiet
 
       # Verify the CONTRACT, not just that something answered. A 200 from

@@ -20,6 +20,16 @@ USER node
 
 ENV NODE_ENV=production
 ENV PORT=8080
+
+# The commit this image was built from, answered by /version (src/lib/version.js).
+# Baked in at BUILD time rather than set on the service at deploy time: the
+# service's environment belongs to Terraform (ezquill/terraform/mcp.tf), and a
+# variable the deploy added was removed by every apply, rolling a revision that
+# no longer knew its own commit. An image built from a commit is that commit
+# wherever it runs, so the image is the right owner. Empty for a local build,
+# which version.js reports as null.
+ARG EZQUILL_BUILD_SHA=""
+ENV EZQUILL_BUILD_SHA=$EZQUILL_BUILD_SHA
 EXPOSE 8080
 
 # `node`, NOT `npm start`. npm forwards no signals, so SIGTERM would never
