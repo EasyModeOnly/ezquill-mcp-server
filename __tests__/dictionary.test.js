@@ -108,6 +108,32 @@ describe('lookup_word', () => {
     assert.deepEqual(result.from.moreSynonyms.map((r) => r.slug), ['ledger']);
   });
 
+  test("carries a derived word's run-on line with the base page (ezquill #385)", async () => {
+    const derivation = { word: 'unsustainable', affix: 'un-', pos: 'adjective', gloss: 'not sustainable' };
+    stubFetch({
+      '/api/v1/words/unsustainable': { redirectTo: 'sustainable', derivation },
+      '/api/v1/words/sustainable': page('sustainable'),
+    });
+    const result = await run('lookup_word', { word: 'unsustainable' });
+
+    // The page is the BASE word's; the gloss is what says the two differ.
+    assert.equal(result.headword.slug, 'sustainable');
+    assert.equal(result.resolvedFrom, 'unsustainable');
+    assert.deepEqual(result.derivation, derivation);
+  });
+
+  test('keeps the derivation even when the redirect is not followed', async () => {
+    const derivation = { word: 'a', affix: 'un-', gloss: 'not b' };
+    stubFetch({
+      '/api/v1/words/a': { redirectTo: 'b', derivation },
+      '/api/v1/words/b': { redirectTo: 'c' },
+    });
+    const result = await run('lookup_word', { word: 'a' });
+
+    assert.match(result.note, /only one redirect/);
+    assert.deepEqual(result.derivation, derivation);
+  });
+
   test('never follows a second redirect', async () => {
     const calls = stubFetch({
       '/api/v1/words/a': { redirectTo: 'b' },
