@@ -39,7 +39,9 @@ Reading:
 - Entity profiles are already resolved to the writer's own edits.
 - Check a sense or find an antonym with lookup_word rather than from memory.
   Synonyms are grouped by meaning: pick from the sense that matches the
-  sentence. An antonym is never a synonym. list_word_favorites shows the
+  sentence. An antonym is never a synonym. A word with a "derivation"
+  ("unsustainable") resolved to its base word's page: its meaning is the
+  base's plus the gloss, never the base's alone. list_word_favorites shows the
   writer's starred words; they are theirs, and read-only here.
 
 Changing things:

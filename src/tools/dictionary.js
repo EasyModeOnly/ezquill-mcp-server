@@ -23,8 +23,11 @@ export const tools = [
       'base word, reported as resolvedFrom. Use it to check a sense or find an antonym rather ' +
       'than relying on memory. When the word asked for has related words of its own but no ' +
       'definitions ("books" → book), that page comes back as `from`: its related words belong ' +
-      'to that spelling and are often not the base word\'s. A word the dictionary does not ' +
-      'know returns found:false with spelling suggestions.',
+      'to that spelling and are often not the base word\'s. A word built from another with an ' +
+      'affix ("unsustainable", "definitively") resolves to that base and carries `derivation`, ' +
+      'whose gloss ("not sustainable") says how the two differ: the page is the BASE word\'s, so ' +
+      'never report its meanings as the asked-for word\'s without the gloss. A word the ' +
+      'dictionary does not know returns found:false with spelling suggestions.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -39,31 +42,39 @@ export const tools = [
       if (!first.found) return { found: false, word, suggestions: first.suggestions };
       if (!first.body?.redirectTo) return compactPage(first.body.page);
 
-      // An inflected form. Followed ONCE: the API redirects a form to its
-      // lemma, and a lemma is a page, so a second redirect means the data is
+      // An inflected form, a closed compound ("login" → log-in) or a derived
+      // word (ezquill #385). Followed ONCE: the API redirects each to a
+      // defined page, so a second redirect means the data is
       // not what this code expects — and following it would be how a cycle
       // becomes a hang. A redirect back to the word itself is the same cycle,
       // one step shorter.
       const { redirectTo, formOf } = first.body;
       const inflectionOf = formOf?.length ? formOf : undefined;
+      // Carried on EVERY outcome below, not only the followed page: it is the
+      // one field that stops "unsustainable → sustainable" reading as a
+      // synonym, and an agent shown only the base word's page would report
+      // sustainable's meaning as unsustainable's.
+      const derivation = first.body.derivation;
       if (sameWord(redirectTo, word)) {
         return {
           word,
           redirectTo,
           inflectionOf,
+          derivation,
           note: 'The dictionary redirected this word to itself; not followed.',
         };
       }
 
       const second = await fetchWord(redirectTo);
       if (!second.found) {
-        return { found: false, word, redirectTo, inflectionOf, suggestions: second.suggestions };
+        return { found: false, word, redirectTo, inflectionOf, derivation, suggestions: second.suggestions };
       }
       if (second.body?.redirectTo) {
         return {
           word,
           redirectTo,
           inflectionOf,
+          derivation,
           note:
             `"${redirectTo}" redirected again, to "${second.body.redirectTo}"; ` +
             'only one redirect is followed. Look that word up directly if you need it.',
@@ -74,7 +85,7 @@ export const tools = [
       // #375): "books" lists ledger and daybook, which book does not. Passed
       // through as the API's page, with its own sources for attribution.
       const from = first.body.from ? compactPage(first.body.from) : undefined;
-      return { ...compactPage(second.body.page), resolvedFrom: word, inflectionOf, from };
+      return { ...compactPage(second.body.page), resolvedFrom: word, inflectionOf, derivation, from };
     },
   },
 
