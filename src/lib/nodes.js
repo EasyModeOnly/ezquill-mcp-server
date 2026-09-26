@@ -58,6 +58,31 @@ export const alternateTitlesOf = (node) => {
   return titles.length > 0 ? titles : undefined;
 };
 
+/**
+ * A node's structural number, as the API derived it: "Ep. 3", "Shot 10A".
+ *
+ * Derived from position by the API and NEVER computed here — the web app, this
+ * connector and the AI routes must print the same "10A", and a second copy of
+ * the numbering rules would disagree about exactly the cases that matter (epic
+ * #37). Undefined for a level that is not numbered, a group, a block, or a node
+ * left out of the count.
+ *
+ * `display` is what to print before the title; `pinned` and `split` say the
+ * writer set it rather than position.
+ */
+export const ordinalOf = (node) => {
+  const o = node?.ordinal;
+  if (!o || typeof o.display !== 'string') return undefined;
+  return {
+    display: o.display,
+    number: o.number,
+    label: o.label,
+    scope: o.scope,
+    ...(o.pinned ? { pinned: true } : {}),
+    ...(o.split ? { split: true } : {}),
+  };
+};
+
 export const aimOf = (node) => {
   const aim = node?.metadata?.aim;
   return typeof aim === 'string' && aim.trim() ? aim : undefined;
@@ -187,6 +212,9 @@ export function buildTree(nodes) {
     return {
       id: entry.node.id,
       title: entry.node.title,
+      // "Ep. 3", derived by the API from position. Titles carry no number;
+      // this is where the number is.
+      ordinal: ordinalOf(entry.node),
       nodeType: entry.node.nodeType,
       status: entry.node.status,
       // ROLLED UP: its own prose, its paragraphs, and everything beneath it.

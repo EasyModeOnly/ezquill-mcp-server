@@ -16,9 +16,9 @@
 import { randomUUID } from 'node:crypto';
 import { call } from '../lib/api.js';
 import { ToolError, Code } from '../lib/errors.js';
-import { levelsFor } from '../lib/writing-types.js';
+import { addableLevelsFor } from '../lib/writing-types.js';
 import { refuseUnmigrated, sectionBlocks } from '../lib/sections.js';
-import { isBlock } from '../lib/nodes.js';
+import { isBlock, ordinalOf } from '../lib/nodes.js';
 
 export const tools = [
   {
@@ -32,14 +32,17 @@ export const tools = [
       'outline as prose with write_draft append — it counts as drafted text and the ' +
       'writer has to delete it. A section\'s thesis, purpose or angle goes in ' +
       'set_aim, and candidate titles in set_alternate_titles — never in a line or a ' +
-      'paragraph.',
+      'paragraph. Numbers ("Ep. 3", "Shot 10A") are derived from position and shown ' +
+      'beside the title: never type a number into a title. Use set_numbering to pin ' +
+      'a number, split a node from the one before (10 → 10A/10B), or leave it out ' +
+      'of the count.',
     inputSchema: {
       type: 'object',
       properties: {
         projectId: { type: 'string' },
         action: {
           type: 'string',
-          enum: ['add', 'add_lines', 'rename', 'move', 'set_status', 'set_plan', 'set_aim', 'set_alternate_titles', 'delete', 'restore'],
+          enum: ['add', 'add_lines', 'rename', 'move', 'set_status', 'set_plan', 'set_aim', 'set_alternate_titles', 'set_numbering', 'delete', 'restore'],
         },
         nodeId: {
           type: 'string',
@@ -85,13 +88,20 @@ export const tools = [
           items: {
             type: 'object',
             properties: {
-              title: { type: 'string' },
+              title: {
+                type: 'string',
+                description:
+                  'The name, with NO number in it — ezQuill numbers nodes by position. ' +
+                  'An empty string is allowed on a numbered level (an episode, a shot), ' +
+                  'which is then called by its number until someone names it.',
+              },
               nodeType: {
                 type: 'string',
                 description:
                   "A level from the project's writing type: chapter, scene, part, section, act, " +
-                  'poem, post… An unknown level is refused with the allowed list. Use ' +
-                  'get_outline to see what this project already uses.',
+                  'poem, post… or `group`, an unnumbered folder for things kept out of the ' +
+                  'count ("Specials", "Unproduced scripts"). An unknown level is refused ' +
+                  'with the allowed list. Use get_outline to see what this project already uses.',
               },
               parentId: {
                 type: 'string',
@@ -101,7 +111,33 @@ export const tools = [
             required: ['title'],
           },
         },
-        title: { type: 'string', description: 'For rename.' },
+        title: {
+          type: 'string',
+          description:
+            'For rename. No number in it. An empty string clears the title of a numbered ' +
+            'node, which is then called by its number.',
+        },
+        pin: {
+          type: 'string',
+          description:
+            'For set_numbering: a fixed number for this node ("S04", "0", "Pilot"), printed ' +
+            'wherever it sits. It uses up no number, so its siblings count as though it ' +
+            'were not there. Up to 12 characters.',
+        },
+        splitFromPrevious: {
+          type: 'boolean',
+          description:
+            'For set_numbering: number this node as a split of the one before it — that ' +
+            'one becomes 10A and this 10B — without renumbering anything after it.',
+        },
+        exclude: {
+          type: 'boolean',
+          description: 'For set_numbering: leave this node out of the count. Its children still number.',
+        },
+        clear: {
+          type: 'boolean',
+          description: 'For set_numbering: drop any override and number by position again.',
+        },
         status: {
           type: 'string',
           description: 'For set_status: outline, draft, revision, complete, abandoned.',
@@ -158,7 +194,7 @@ export const tools = [
           const typed = wanted.filter((n) => n.nodeType);
           if (typed.length > 0) {
             const project = await call(`/projects/${projectId}`);
-            const levels = await levelsFor(project.writingType);
+            const levels = await addableLevelsFor(project.writingType);
             const allowed = levels.map((l) => l.key);
             const unknown = typed.find((n) => !allowed.includes(n.nodeType));
             if (unknown) {
@@ -313,6 +349,10 @@ export const tools = [
           return { updated: { ...summarise(updated), alternateTitles: titles } };
         }
 
+        case 'set_numbering':
+          requireNode(args);
+          return setNumbering(args);
+
         case 'delete':
           requireNode(args);
           // Soft, and it takes the whole subtree with it — restorable as one
@@ -400,6 +440,48 @@ async function addLines({ projectId, nodeId, lines }) {
   };
 }
 
+/**
+ * A writer's override of a node's number: pin, split from the previous, exclude,
+ * or clear. Stored in `metadata.numbering`; the NUMBER itself is derived by the
+ * API and never written by anyone.
+ *
+ * Exactly one per call, as the app's withNumberingOverride keeps exactly one:
+ * a pinned node that is also a split is a combination nobody decided the
+ * meaning of, and the API refuses it. `metadata` ASSIGNS, so the row is read
+ * and the whole blob rebuilt — a shot's metadata also holds its compiler
+ * overrides and start-frame plan.
+ */
+async function setNumbering({ projectId, nodeId, pin, splitFromPrevious, exclude, clear }) {
+  const chosen = [
+    typeof pin === 'string' && pin.trim() !== '',
+    splitFromPrevious === true,
+    exclude === true,
+    clear === true,
+  ].filter(Boolean).length;
+  if (chosen !== 1) {
+    throw new ToolError(
+      Code.REQUEST_FAILED,
+      'set_numbering needs exactly one of: pin, splitFromPrevious, exclude, clear.'
+    );
+  }
+
+  const base = `/projects/${projectId}/nodes/${nodeId}`;
+  const node = await call(base);
+  const metadata = { ...(node.metadata ?? {}) };
+  if (clear) delete metadata.numbering;
+  else if (splitFromPrevious) metadata.numbering = { splitOf: 'previous' };
+  else if (exclude) metadata.numbering = { exclude: true };
+  else metadata.numbering = { pin: pin.trim() };
+
+  const updated = await call(base, { method: 'PATCH', body: { metadata } });
+  return {
+    updated: summarise(updated),
+    // One override renumbers the siblings after it, whose rows this call does
+    // not return. Say so rather than let a stale outline be trusted.
+    note: 'Numbers after this node may have changed too. Call get_outline to see them.',
+  };
+}
+
 /** Trimmed, blanks dropped: the app's withPoints rule. */
 function cleanPoints(points) {
   return (Array.isArray(points) ? points : [])
@@ -417,6 +499,7 @@ function requireNode(args) {
 const summarise = (n) => ({
   id: n.id,
   title: n.title,
+  ordinal: ordinalOf(n),
   nodeType: n.nodeType,
   status: n.status,
   parentId: n.parentId ?? undefined,

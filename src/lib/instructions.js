@@ -55,6 +55,13 @@ Changing things:
   instead of a line per thing. A
   section's thesis or purpose goes in manage_outline "set_aim", and candidate
   titles in "set_alternate_titles", not in a line.
+- Numbers are ezQuill's, not yours. Each numbered node reports an "ordinal"
+  ("Ep. 3", "Shot 10A") derived from where it sits, and moving a node
+  renumbers the rest. Never type a number into a title, and refer to nodes by
+  their ordinal the way the writer sees them. A new episode or shot may be
+  left untitled. For 10A/10B, a legacy "S04" or a special kept out of the
+  count, use manage_outline "set_numbering"; for a folder of specials, add a
+  "group".
 - Read a scene before writing into it. The tools protect the manuscript, not
   your judgement about what belongs in it.
 - Creating a character is cheap to do and expensive to undo: it joins the cast
