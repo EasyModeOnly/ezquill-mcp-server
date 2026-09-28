@@ -57,3 +57,8 @@ describe('resolveProfile — the writer wins over the engine', () => {
     assert.deepEqual(resolveProfile({ role: 'x', authored: 'nonsense' }), { role: 'x' });
   });
 });
+
+test('never reports the authored layer\'s $schema stamp as a field', () => {
+  assert.deepEqual(resolveProfile({ authored: { $schema: 1, role: 'Captain' } }), { role: 'Captain' });
+});
+
