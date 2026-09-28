@@ -45,6 +45,9 @@ export function resolveProfile(profile) {
     // `authored` is the namespace, not a field. Emitting it would hand the
     // caller both layers again and invite them to pick the wrong one.
     if (key === 'authored') continue;
+    // The web app's version stamp on the authored layer, not a fact about the
+    // entity. Shown to an agent it reads as a field to fill.
+    if (key === '$schema') continue;
 
     const value = isEmpty(authored[key]) ? engine[key] : authored[key];
     if (!isEmpty(value)) resolved[key] = value;

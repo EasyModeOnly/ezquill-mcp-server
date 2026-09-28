@@ -70,6 +70,10 @@ Changing things:
   set or prop (look line, reference-asset / Element ID, voice, geography) goes
   in manage_entity "production", never in "profile": every shot's prompt is
   compiled from production fields, and it does not read the profile.
+- A project may define its own entity kinds, or add fields to the built-in
+  ones. list_entities reports them as "templates" and get_entity as
+  "template": fill those keys, and do not invent profile keys the project
+  never declared.
 - Creating a character is cheap to do and expensive to undo: it joins the cast
   lists, the timeline filters and every future prompt, and will look like
   something the writer created. Ask first.
