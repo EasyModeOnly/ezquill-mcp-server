@@ -60,15 +60,27 @@ export async function call(path, opts = {}) {
     }
   }
 
-  const response = await fetch(url, {
-    method: opts.method ?? 'GET',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: 'application/json',
-      ...(opts.body === undefined ? {} : { 'Content-Type': 'application/json' }),
-    },
-    body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
-  });
+  const send = () =>
+    fetch(url, {
+      method: opts.method ?? 'GET',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/json',
+        ...(opts.body === undefined ? {} : { 'Content-Type': 'application/json' }),
+      },
+      body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
+    });
+
+  let response = await send();
+  let attempts = 1;
+  for (;;) {
+    if (response.status !== 429 || attempts >= retry.attempts) break;
+    const wait = waitBeforeRetry(response, attempts);
+    if (wait === null) break;
+    await retry.sleep(wait);
+    response = await send();
+    attempts += 1;
+  }
 
   if (response.status === 204) return null;
 
@@ -76,6 +88,7 @@ export async function call(path, opts = {}) {
     const { message, body } = await readFailure(response);
     const err = new ToolError(codeForStatus(response.status), message, {
       status: response.status,
+      ...(attempts > 1 ? { attempts } : {}),
     });
     // The parsed body rides on the error for the few callers whose failure
     // body IS the answer — a dictionary 404 carries the spelling suggestions.
@@ -88,6 +101,57 @@ export async function call(path, opts = {}) {
   }
 
   return response.json();
+}
+
+/**
+ * How a 429 is retried, and the clock it waits on (tests replace `sleep` and
+ * `random` so they take no real time).
+ *
+ * An agent recording a production run fires a few dozen calls inside a second
+ * and meets the API's per-user burst limit (ezquill #233). Failing the tool
+ * there hands the agent a problem it can only solve by retrying blindly, and
+ * usually too fast.
+ *
+ * Retrying is safe for EVERY method, POST included: the API refuses in
+ * middleware (`ratelimit.go`, `tooManyRequests`) before any handler runs, so a
+ * refused write did nothing and replaying it cannot write twice.
+ *
+ * - `attempts` counts the first call, so 3 means at most two retries.
+ * - `fallbackMs` is used when there is no usable Retry-After. The web app's
+ *   routes (`app: true`) pass an API 429's status through without the header.
+ * - `maxWaitMs`: a server asking for longer than this is refused outright
+ *   rather than waited on. The remote transport holds the agent's MCP request
+ *   open while this sleeps, and a limit that long is not a burst.
+ */
+export const retry = {
+  attempts: 3,
+  fallbackMs: 1000,
+  maxWaitMs: 5000,
+  sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  random: Math.random,
+};
+
+/**
+ * Milliseconds to wait before retry number `attempt`, or null to give up.
+ *
+ * The server's hint is a floor, never shortened: returning earlier than
+ * Retry-After is being refused again. It doubles per retry, and random jitter
+ * of up to the same again goes on top. Without the jitter, thirty calls
+ * refused together all return in the same instant and meet the same limit.
+ */
+function waitBeforeRetry(response, attempt) {
+  const asked = retryAfterMs(response.headers?.get?.('Retry-After'));
+  if (asked !== null && asked > retry.maxWaitMs) return null;
+  const base = (asked ?? retry.fallbackMs) * 2 ** (attempt - 1);
+  return Math.round(base + retry.random() * base);
+}
+
+/** Retry-After is either delta-seconds or an HTTP date (RFC 9110 §10.2.3). */
+function retryAfterMs(value) {
+  if (value === null || value === undefined || value === '') return null;
+  if (/^\d+$/.test(value.trim())) return Number(value) * 1000;
+  const at = Date.parse(value);
+  return Number.isNaN(at) ? null : Math.max(0, at - Date.now());
 }
 
 /**
