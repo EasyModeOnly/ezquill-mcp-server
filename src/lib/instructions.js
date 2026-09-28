@@ -66,6 +66,10 @@ Changing things:
   "group".
 - Read a scene before writing into it. The tools protect the manuscript, not
   your judgement about what belongs in it.
+- In a shortform-video project, what a generator needs to draw a character,
+  set or prop (look line, reference-asset / Element ID, voice, geography) goes
+  in manage_entity "production", never in "profile": every shot's prompt is
+  compiled from production fields, and it does not read the profile.
 - Creating a character is cheap to do and expensive to undo: it joins the cast
   lists, the timeline filters and every future prompt, and will look like
   something the writer created. Ask first.
