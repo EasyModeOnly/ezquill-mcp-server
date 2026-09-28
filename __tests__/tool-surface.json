@@ -1,9 +1,15 @@
 {
-  "version": "0.8.0",
+  "version": "0.9.0",
   "tools": {
     "authenticate": {
       "params": [
         "includeDelete"
+      ]
+    },
+    "compile_prompt": {
+      "params": [
+        "nodeId",
+        "projectId"
       ]
     },
     "create_project": {
@@ -25,6 +31,13 @@
       "params": [
         "parentId",
         "projectId"
+      ]
+    },
+    "get_production": {
+      "params": [
+        "nodeId",
+        "projectId",
+        "scope"
       ]
     },
     "get_project": {
@@ -164,6 +177,31 @@
         "set_numbering",
         "set_plan",
         "set_status"
+      ]
+    },
+    "manage_production": {
+      "params": [
+        "action",
+        "data",
+        "file",
+        "nodeId",
+        "note",
+        "patch",
+        "projectId",
+        "recordId",
+        "status",
+        "take",
+        "versionId"
+      ],
+      "actions": [
+        "delete_record",
+        "record_cue",
+        "record_cut",
+        "record_still",
+        "record_take",
+        "set_status",
+        "update_record",
+        "update_take"
       ]
     },
     "manage_timeline": {

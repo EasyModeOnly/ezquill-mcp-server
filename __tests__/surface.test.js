@@ -29,6 +29,9 @@ describe('the tool surface', () => {
       'list_projects', 'get_project', 'search_project', 'get_outline', 'read_scene',
       'list_entities', 'get_entity', 'get_timeline', 'list_feedback',
       'lookup_word', 'list_word_favorites',
+      // Production reads. compile_prompt counts a use server-side, but changes
+      // nothing a person wrote.
+      'get_production', 'compile_prompt',
     ]);
 
     for (const tool of TOOLS) {

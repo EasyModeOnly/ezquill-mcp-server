@@ -63,6 +63,9 @@ export const tools = [
         callPaged(`/projects/${projectId}/nodes`, 'nodes', { parentId: nodeId, limit: 10000 }),
         call(`/projects/${projectId}/nodes/${nodeId}/entities`).catch(() => null),
       ]);
+      // A shot's production, in brief (ezquill epic #38): its status and its
+      // takes. get_production scope "shot" has the whole of it.
+      const production = node.nodeType === 'shot' ? await shotProduction(projectId, nodeId, node) : undefined;
 
       const blocks = children.filter(isBlock).sort(byOrder);
       const structural = children.filter((c) => !isBlock(c)).sort(byOrder);
@@ -102,10 +105,30 @@ export const tools = [
           ordinal: ordinalOf(c),
           nodeType: c.nodeType,
         })),
+        ...(production ? { production } : {}),
       };
     },
   },
 ];
+
+/**
+ * A shot's production at a glance: status, how many takes, which is locked.
+ * A take is a version whose content carries `take`; a failure to read them
+ * leaves the summary out rather than failing the read of the scene.
+ */
+async function shotProduction(projectId, nodeId, node) {
+  const listed = await call(`/projects/${projectId}/nodes/${nodeId}/versions`, { query: { limit: 500 } }).catch(
+    () => null
+  );
+  const takes = (listed?.versions ?? []).filter((v) => v.content && typeof v.content.take === 'object');
+  const locked = takes.find((v) => v.content.take.status === 'accepted');
+  return {
+    status: node.productionStatus ?? null,
+    ...(node.productionNote ? { note: node.productionNote } : {}),
+    takeCount: takes.length,
+    lockedTakeId: locked?.id ?? null,
+  };
+}
 
 /** The subtree under parentId, parent included, from a flat list. */
 function descendantsOf(nodes, parentId) {

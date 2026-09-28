@@ -9,6 +9,7 @@
  */
 import { resolveCredential } from './credentials.js';
 import { Code, ToolError, codeForStatus } from './errors.js';
+import { appBaseUrl } from './app-url.js';
 
 const DEFAULT_BASE_URL = 'https://api.ezquill.com';
 
@@ -21,13 +22,19 @@ export function baseUrl() {
  *
  * @param {string} path under /api/v1 (or under the API root with `root`),
  *   leading slash included
- * @param {{method?: string, body?: unknown, query?: Record<string, unknown>, root?: boolean}} [opts]
+ * @param {{method?: string, body?: unknown, query?: Record<string, unknown>, root?: boolean, app?: boolean}} [opts]
  *
  * `root: true` drops the `/api/v1` prefix. The API registers the caller's own
  * account routes at its ROOT — `/me`, `/me/inbox`, `/me/words` — not under
  * `/api/v1`, and a wrong prefix is not an error anyone sees: it is a 404, which
  * a tool reports as "not found" about something that exists. So the choice is
  * made per call, visibly, rather than guessed from the path.
+ *
+ * `app: true` targets the WEB APP instead (EZQUILL_APP_BASE_URL), at the path
+ * given. A few answers are computed by the web app's own TypeScript — compiling
+ * a shot's prompt, the production dashboard — and porting them here would be a
+ * second copy to drift (ezquill epic #38). Same bearer token: the web route
+ * forwards it to the API, which applies the same access rules.
  */
 export async function call(path, opts = {}) {
   // The ONE place a credential is read. Everything else — every tool, every
@@ -40,7 +47,9 @@ export async function call(path, opts = {}) {
     );
   }
 
-  const url = new URL(`${baseUrl()}${opts.root ? '' : '/api/v1'}${path}`);
+  const url = new URL(
+    opts.app ? `${appBaseUrl()}${path}` : `${baseUrl()}${opts.root ? '' : '/api/v1'}${path}`
+  );
   for (const [key, value] of Object.entries(opts.query ?? {})) {
     if (value === undefined || value === null || value === '') continue;
     // Repeatable filters (kind, tag, status, nodeType) arrive as arrays and the
@@ -90,7 +99,8 @@ async function readFailure(response) {
   let body;
   try {
     body = await response.json();
-    const message = body?.error?.message;
+    // The API nests the message; the web app's routes send it bare.
+    const message = typeof body?.error === 'string' ? body.error : body?.error?.message;
     if (typeof message === 'string' && message) return { message, body };
   } catch {
     // A non-JSON body (a proxy's HTML error page) is not worth reporting in
