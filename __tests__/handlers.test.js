@@ -64,6 +64,20 @@ describe('search_project', () => {
     assert.ok(!('header' in results[0]));
   });
 
+  test("passes on a node's number, and nothing where it has none", async () => {
+    stubFetch({
+      '/search': {
+        results: [
+          { sourceType: 'node', sourceId: 's7', title: '', ordinal: 'Shot 6B', text: 'a', distance: 0.5 },
+          { sourceType: 'entity', sourceId: 'e1', title: 'Kevin', text: 'b', distance: 0.6 },
+        ],
+      },
+    });
+    const { results } = await run('search_project', { projectId: 'p', query: 'q' });
+    assert.equal(results[0].ordinal, 'Shot 6B');
+    assert.equal(results[1].ordinal, undefined);
+  });
+
   test('preserves the order the API returned', async () => {
     // Order is the whole signal, so it must survive the mapping untouched.
     stubFetch({

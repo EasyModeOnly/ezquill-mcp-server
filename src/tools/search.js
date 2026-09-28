@@ -65,6 +65,9 @@ export const tools = [
           // to. Safe to pass to read_scene.
           sourceId: r.sourceId,
           title: r.title,
+          // The node's number as the binder prints it ("Shot 6B"), derived by
+          // the API — so an untitled shot is still nameable. Absent otherwise.
+          ordinal: r.ordinal || undefined,
           // The writer's own words. The only field that may be quoted.
           text: r.text,
           // What the system wrote ABOUT the passage: binder ancestors and cast.
