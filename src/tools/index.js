@@ -9,6 +9,7 @@ import { tools as search } from './search.js';
 import { tools as outline } from './outline.js';
 import { tools as storyWorld } from './story-world.js';
 import { tools as timeline } from './timeline.js';
+import { tools as production } from './production.js';
 import { tools as feedback } from './feedback.js';
 import { tools as dictionary } from './dictionary.js';
 import { tools as writeProjects } from './write-projects.js';
@@ -16,6 +17,7 @@ import { tools as writeOutline } from './write-outline.js';
 import { tools as writeDraft } from './write-draft.js';
 import { tools as writeStoryWorld } from './write-story-world.js';
 import { tools as writeTimeline } from './write-timeline.js';
+import { tools as writeProduction } from './write-production.js';
 import { tools as writeFeedback } from './write-feedback.js';
 import { tools as auth } from './auth.js';
 
@@ -25,6 +27,9 @@ export const TOOLS = [
   ...outline,
   ...storyWorld,
   ...timeline,
+  // A shortform show's production: what was made from the shots, and the
+  // prompt for the next one (ezquill epic #38).
+  ...production,
   ...feedback,
   // Last among the reads: the dictionary is reference, not the manuscript —
   // something an agent reaches for mid-draft, not where it starts.
@@ -39,6 +44,7 @@ export const TOOLS = [
   ...writeDraft,
   ...writeStoryWorld,
   ...writeTimeline,
+  ...writeProduction,
   ...writeFeedback,
   // Last: signing in is not what the surface is FOR, and a client that shows
   // tools in order should lead with the manuscript.

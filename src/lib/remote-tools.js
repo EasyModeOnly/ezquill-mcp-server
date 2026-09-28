@@ -43,6 +43,13 @@ export const REMOTE_SAFE = new Set([
   // offered at all — a delegated token may never write under /me.
   'lookup_word',
   'list_word_favorites',
+  // Production reads (ezquill epic #38). These call the WEB APP's routes, not
+  // the API — the prompt compiler and the production summaries are its
+  // TypeScript — with the caller's own token, which the route forwards to the
+  // API. Nothing touches this machine. EZQUILL_APP_BASE_URL is set per
+  // environment in terraform/mcp.tf.
+  'get_production',
+  'compile_prompt',
   // Writes. Remote-safe for the same reason the reads are: every one is a call
   // to the ezQuill API, constrained by the consent scopes on the caller's own
   // token. Nothing here touches this machine.
@@ -56,6 +63,9 @@ export const REMOTE_SAFE = new Set([
   'manage_cast',
   'manage_timeline',
   'manage_feedback',
+  // Takes, stills, cues, cuts and production status: API writes (plus one
+  // compile read from the web app for record_take), scoped like the rest.
+  'manage_production',
 ]);
 
 export const isRemoteSafe = (name) => REMOTE_SAFE.has(name);

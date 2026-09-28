@@ -74,6 +74,14 @@ Changing things:
   ones. list_entities reports them as "templates" and get_entity as
   "template": fill those keys, and do not invent profile keys the project
   never declared.
+- Producing a shortform show: call compile_prompt for a shot and submit
+  exactly its "prompt" (or record your edit), then record the result with
+  manage_production record_take — rejected takes as well as accepted ones,
+  with a verdictReason. The job ID is the durable reference; a CDN URL
+  expires, so always send the jobId. Set a shot's status with set_status, and
+  read what is next or blocked with get_production. Never create research
+  entities to hold production state: takes, stills, cues and cuts have their
+  own records.
 - Creating a character is cheap to do and expensive to undo: it joins the cast
   lists, the timeline filters and every future prompt, and will look like
   something the writer created. Ask first.
