@@ -1,5 +1,5 @@
 {
-  "version": "0.6.0",
+  "version": "0.7.0",
   "tools": {
     "authenticate": {
       "params": [
@@ -99,6 +99,7 @@
         "inverseKind",
         "kind",
         "name",
+        "production",
         "profile",
         "projectId",
         "relationId",

@@ -1,5 +1,6 @@
 import { call, callPaged } from '../lib/api.js';
 import { resolveProfile } from '../lib/profile.js';
+import { resolveProduction } from '../lib/production.js';
 
 export const tools = [
   {
@@ -89,6 +90,11 @@ export const tools = [
         // writer's edit. See lib/profile.js — the rule otherwise lives only in
         // the web app, and reading the raw blob fails silently.
         profile: resolveProfile(entity.profile),
+        // What the video generator draws it from, resolved the same way: an
+        // edit over the imported bible. Absent for anything with none.
+        ...(Object.keys(resolveProduction(entity.metadata)).length > 0
+          ? { production: resolveProduction(entity.metadata) }
+          : {}),
         // `kind` here is already the inverse when the edge points the other
         // way, so one directed row reads correctly from either end and this
         // needs no flipping: (Ana)-[parent_of]->(Bea) reads back on Bea as

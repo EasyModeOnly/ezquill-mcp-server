@@ -496,6 +496,51 @@ describe('manage_entity', () => {
     const body = sent.find((r) => r.method === 'POST').body;
     assert.deepEqual(body.profile, { authored: { role: 'Mate' } });
   });
+
+  test('production lands in metadata.production, where the compiler reads, not in profile', async () => {
+    const sent = stub({ 'POST /entities': (body) => ({ id: 'e9', ...body }) });
+    const result = await run('manage_entity', {
+      projectId: 'p', action: 'create', kind: 'character', name: 'Sal',
+      production: { elementId: 'EL-1', look: 'Sal, 40s' },
+    });
+
+    const body = sent.find((r) => r.method === 'POST').body;
+    assert.deepEqual(body.metadata, { production: { elementId: 'EL-1', look: 'Sal, 40s' } });
+    assert.equal(body.profile, undefined);
+    assert.deepEqual(result.created.production, { elementId: 'EL-1', look: 'Sal, 40s' });
+  });
+
+  test('update rebuilds metadata whole, keeping the bible layer and its rules', async () => {
+    // PATCH ASSIGNS metadata. Sending only `production` would delete the
+    // import's key, its bible, and every continuity rule on the entity.
+    const metadata = {
+      bibleKey: 'character:sal',
+      bible: { look: 'Sal, 40s', rules: [{ block: 'EYES', text: 'black dots' }] },
+      production: { voiceId: 'v1' },
+    };
+    const sent = stub({
+      'GET /entities/e1': { id: 'e1', name: 'Sal', metadata },
+      'PATCH /entities/e1': (body) => ({ id: 'e1', name: 'Sal', ...body }),
+    });
+
+    await run('manage_entity', {
+      projectId: 'p', action: 'update', entityId: 'e1', production: { elementId: 'EL-2', voiceId: '' },
+    });
+
+    const patched = sent.find((r) => r.method === 'PATCH').body.metadata;
+    assert.equal(patched.bibleKey, 'character:sal');
+    assert.deepEqual(patched.bible, metadata.bible, 'the import layer is untouched');
+    assert.deepEqual(patched.production, { elementId: 'EL-2' }, 'an empty value clears the edit');
+  });
+
+  test('a value equal to the bible clears the edit instead of shadowing it', async () => {
+    const sent = stub({
+      'GET /entities/e1': { id: 'e1', metadata: { bible: { look: 'Sal' }, production: { look: 'x' } } },
+      'PATCH /entities/e1': (body) => ({ id: 'e1', ...body }),
+    });
+    await run('manage_entity', { projectId: 'p', action: 'update', entityId: 'e1', production: { look: 'Sal' } });
+    assert.deepEqual(sent.find((r) => r.method === 'PATCH').body.metadata, { bible: { look: 'Sal' } });
+  });
 });
 
 describe('manage_cast', () => {

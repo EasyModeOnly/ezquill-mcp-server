@@ -5,6 +5,7 @@
 import { call } from '../lib/api.js';
 import { ToolError, Code } from '../lib/errors.js';
 import { resolveProfile } from '../lib/profile.js';
+import { resolveProduction, withProduction } from '../lib/production.js';
 
 export const tools = [
   {
@@ -33,6 +34,17 @@ export const tools = [
           description:
             'Kind-specific fields — role, age, occupation, notes and so on. Merged with ' +
             "what is already there; the writer's existing values are never dropped.",
+        },
+        production: {
+          type: 'object',
+          description:
+            'Shortform video only: what the video generator needs to draw this, which every ' +
+            "shot's prompt is compiled from. Character: elementId, look, voiceId, voiceName. " +
+            'Set: elementId, plates, geography, noSpeech, noSpeechReason. Prop: elementId, ' +
+            'appearance, neverBecomes (array). elementId is the reference asset (Higgsfield ' +
+            'Element, Runway reference, Kling subject). NEVER put these in profile — the ' +
+            'compiler does not read it. Merged with what is there; an empty value clears the ' +
+            "edit and falls back to the imported bible's.",
         },
         toEntityId: { type: 'string', description: 'For relate: the other end.' },
         relationKind: {
@@ -74,6 +86,7 @@ export const tools = [
               // engine owns the top level; writing there would make an invented
               // value indistinguishable from an imported one.
               ...(args.profile ? { profile: { authored: args.profile } } : {}),
+              ...(args.production ? { metadata: withProduction({}, args.production) } : {}),
             },
           });
           return { created: summarise(created) };
@@ -86,7 +99,11 @@ export const tools = [
           // is rebuilt from the row that was read: the engine's keys at the top
           // level, the writer's under `authored`, and this change layered onto
           // the authored half. Sending only the new keys would erase both.
-          const current = args.profile ? await call(`${base}/${args.entityId}`) : null;
+          //
+          // `metadata` is assigned the same way, and holds the bible import's
+          // key and rules beside the production layer, so it is rebuilt too.
+          const current =
+            args.profile || args.production ? await call(`${base}/${args.entityId}`) : null;
           const profile = args.profile
             ? {
                 ...(current?.profile ?? {}),
@@ -101,6 +118,9 @@ export const tools = [
               ...(args.description !== undefined ? { description: args.description } : {}),
               ...(args.tags ? { tags: args.tags } : {}),
               ...(profile ? { profile } : {}),
+              ...(args.production
+                ? { metadata: withProduction(current?.metadata, args.production) }
+                : {}),
             },
           });
           return { updated: summarise(updated) };
@@ -211,4 +231,11 @@ const summarise = (e) => ({
   description: e.description || undefined,
   tags: e.tags ?? [],
   profile: resolveProfile(e.profile),
+  ...production(e.metadata),
 });
+
+/** Only when there is something to say, so a novel's entities read as before. */
+const production = (metadata) => {
+  const resolved = resolveProduction(metadata);
+  return Object.keys(resolved).length > 0 ? { production: resolved } : {};
+};
