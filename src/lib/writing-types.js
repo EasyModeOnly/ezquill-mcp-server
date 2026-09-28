@@ -22,12 +22,14 @@
 import { call } from './api.js';
 
 let cached = null;
+let universal = [];
 
 /** Every writing type's levels. Fetched once per process. */
 export async function loadWritingTypes() {
   if (cached) return cached;
   const body = await call('/writing-types');
   const byKey = new Map((body?.writingTypes ?? []).map((w) => [w.key, w]));
+  universal = Array.isArray(body?.universalLevels) ? body.universalLevels : [];
   cached = byKey;
   return byKey;
 }
@@ -35,6 +37,7 @@ export async function loadWritingTypes() {
 /** For tests: forget what was fetched. */
 export function resetWritingTypes() {
   cached = null;
+  universal = [];
 }
 
 /** One writing type's registry entry, or undefined if the API does not know it. */
@@ -45,6 +48,19 @@ export async function writingType(key) {
 /** The levels of a writing type, outermost first. Empty for an unknown type. */
 export async function levelsFor(key) {
   return (await writingType(key))?.levels ?? [];
+}
+
+/**
+ * Every node type a writer may ADD in this writing type: its levels, then the
+ * universal ones every type shares — today the unnumbered `group` folder
+ * ("Specials", "Unproduced scripts").
+ *
+ * Kept apart from `levelsFor` on purpose: that is the planting chain, and a
+ * group is never planted.
+ */
+export async function addableLevelsFor(key) {
+  const levels = await levelsFor(key);
+  return [...levels, ...universal.filter((u) => !levels.some((l) => l.key === u.key))];
 }
 
 /** The levels the web wizard plants for this type: the chain down to the first prose level. */

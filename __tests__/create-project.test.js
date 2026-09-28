@@ -17,15 +17,15 @@ const REGISTRY = {
     {
       key: 'novel',
       levels: [
-        { key: 'part', label: 'Part', pluralLabel: 'Parts', children: ['chapter'], carriesProse: false },
-        { key: 'chapter', label: 'Chapter', pluralLabel: 'Chapters', children: ['scene'], carriesProse: true },
-        { key: 'scene', label: 'Scene', pluralLabel: 'Scenes', children: [], carriesProse: true },
+        { key: 'part', label: 'Part', pluralLabel: 'Parts', children: ['chapter'], carriesProse: false, numbered: true },
+        { key: 'chapter', label: 'Chapter', pluralLabel: 'Chapters', children: ['scene'], carriesProse: true, numbered: true },
+        { key: 'scene', label: 'Scene', pluralLabel: 'Scenes', children: [], carriesProse: true, numbered: false },
       ],
       plantedLevels: ['part', 'chapter'],
     },
     {
       key: 'blog',
-      levels: [{ key: 'post', label: 'Post', pluralLabel: 'Posts', children: [], carriesProse: true }],
+      levels: [{ key: 'post', label: 'Post', pluralLabel: 'Posts', children: [], carriesProse: true, numbered: false }],
       plantedLevels: ['post'],
     },
   ],
@@ -157,6 +157,23 @@ describe('create_project — what is sent', () => {
     assert.equal(byTitle['Ch 3'].parentId, byTitle['Part Two'].id);
     assert.ok(!('parentId' in byTitle['Part One']));
     assert.deepEqual([byTitle['Ch 1'].order, byTitle['Ch 2'].order], [0, 1]);
+  });
+
+  // ezquill epic #37: a numbered level is named by its number until the
+  // writer names it, and a typed "Chapter 3" would go stale on reorder.
+  test('a numbered level may be untitled; an unnumbered one may not', async () => {
+    const sent = stub(happy());
+    await run('create_project', {
+      title: 'Harbour', writingType: 'novel',
+      structure: [{ nodeType: 'part', children: [{ nodeType: 'chapter' }, { title: '  ', nodeType: 'chapter' }] }],
+    });
+    const nodes = sent.find((r) => r.path.endsWith('/batch')).body.nodes;
+    assert.deepEqual(nodes.map((n) => n.title), ['', '', '']);
+
+    await assert.rejects(
+      () => run('create_project', { title: 'H', writingType: 'blog', structure: [{ nodeType: 'post' }] }),
+      /needs a title/
+    );
   });
 
   test('content only on prose levels, and it is the wizard\'s empty document', async () => {

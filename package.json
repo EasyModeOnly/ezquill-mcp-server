@@ -1,6 +1,6 @@
 {
   "name": "@ezquill/mcp-server",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "MCP server for ezQuill — read a writer's manuscript, story world and timeline from an AI agent.",
   "type": "module",
   "license": "Apache-2.0",

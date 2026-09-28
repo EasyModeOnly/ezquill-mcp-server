@@ -1,5 +1,5 @@
 {
-  "version": "0.5.0",
+  "version": "0.6.0",
   "tools": {
     "authenticate": {
       "params": [
@@ -136,14 +136,18 @@
         "action",
         "aim",
         "alternateTitles",
+        "clear",
+        "exclude",
         "lines",
         "nodeId",
         "nodes",
         "order",
         "parentId",
+        "pin",
         "plan",
         "points",
         "projectId",
+        "splitFromPrevious",
         "status",
         "title"
       ],
@@ -156,6 +160,7 @@
         "restore",
         "set_aim",
         "set_alternate_titles",
+        "set_numbering",
         "set_plan",
         "set_status"
       ]

@@ -73,7 +73,13 @@ const emptyDocument = () => ({ document: { type: 'doc', content: [] }, plainText
 const structureEntry = {
   type: 'object',
   properties: {
-    title: { type: 'string' },
+    title: {
+      type: 'string',
+      description:
+        'The name, with NO number in it: ezQuill numbers nodes by position ("Ep. 3", ' +
+        '"Shot 2"). Omit it on a numbered level the writer has not named; its number ' +
+        'names it. Every other level needs one.',
+    },
     nodeType: {
       type: 'string',
       description:
@@ -86,7 +92,7 @@ const structureEntry = {
       items: { type: 'object' },
     },
   },
-  required: ['title', 'nodeType'],
+  required: ['nodeType'],
 };
 
 export const tools = [
@@ -213,14 +219,22 @@ export function planNodes(structure, levels, writingType) {
           { writingType, nodeType: entry?.nodeType, allowed: levels.map((l) => l.key) }
         );
       }
-      if (!entry.title || !String(entry.title).trim()) {
-        throw new ToolError(Code.REQUEST_FAILED, `${where}: every node needs a title.`);
+      // A numbered level may be untitled: its number names it, and stays right
+      // when the node moves, where a typed "Shot 3" goes stale on the first
+      // reorder (ezquill epic #37). The API refuses an empty title anywhere
+      // else, so the same rule is stated here before anything is sent.
+      const untitled = !entry.title || !String(entry.title).trim();
+      if (untitled && !level.numbered) {
+        throw new ToolError(
+          Code.REQUEST_FAILED,
+          `${where}: a ${level.key} needs a title (only a numbered level may be left untitled).`
+        );
       }
 
       const id = randomUUID();
       nodes.push({
         id,
-        title: entry.title,
+        title: untitled ? '' : entry.title,
         nodeType: entry.nodeType,
         ...(parentId ? { parentId } : {}),
         // Explicit, unlike manage_outline's append: the project is new, so

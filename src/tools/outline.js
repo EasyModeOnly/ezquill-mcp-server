@@ -1,12 +1,13 @@
 import { call, callPaged } from '../lib/api.js';
-import { aimOf, alternateTitlesOf, assembleProse, sumWords, buildTree, byOrder, isBlock, planLines } from '../lib/nodes.js';
+import { aimOf, alternateTitlesOf, assembleProse, sumWords, buildTree, byOrder, isBlock, ordinalOf, planLines } from '../lib/nodes.js';
 
 export const tools = [
   {
     name: 'get_outline',
     description:
-      'The structure of a project: its parts, chapters and scenes, with status and ' +
-      'word counts. Returns no prose — use read_scene for that.',
+      'The structure of a project: its parts, chapters and scenes, with status, ' +
+      'word counts and each numbered node\'s ordinal ("Ep. 3", "Shot 10A"), which ' +
+      'ezQuill derives from position. Returns no prose — use read_scene for that.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -69,6 +70,7 @@ export const tools = [
       return {
         id: node.id,
         title: node.title,
+        ordinal: ordinalOf(node),
         nodeType: node.nodeType,
         status: node.status,
         // The scene's own prose plus its paragraphs: since prose moved into
@@ -94,7 +96,12 @@ export const tools = [
             ? undefined
             : { start: node.storyTimeStart, end: node.storyTimeEnd },
         // A chapter that delegates to child scenes rather than holding prose.
-        children: structural.map((c) => ({ id: c.id, title: c.title, nodeType: c.nodeType })),
+        children: structural.map((c) => ({
+          id: c.id,
+          title: c.title,
+          ordinal: ordinalOf(c),
+          nodeType: c.nodeType,
+        })),
       };
     },
   },
