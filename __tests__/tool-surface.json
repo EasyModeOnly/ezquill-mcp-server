@@ -1,5 +1,5 @@
 {
-  "version": "0.9.1",
+  "version": "0.10.0",
   "tools": {
     "authenticate": {
       "params": [
@@ -182,6 +182,7 @@
     "manage_production": {
       "params": [
         "action",
+        "backfill",
         "data",
         "file",
         "nodeId",

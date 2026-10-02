@@ -26,21 +26,174 @@ const ACTIONS = [
   'set_status',
 ];
 
-const fileRefSchema = {
-  type: 'object',
-  description:
-    'A file outside ezQuill. provider: higgsfield | runway | veo | kling | elevenlabs | local | other. ' +
-    'role: source | revoiced | final | last_frame | handoff_frame | still | audio | project | export. ' +
-    'Needs at least one of jobId, path, url. The jobId is the durable reference; a CDN url expires.',
+// The take's shape, declared field by field (ezquill #433). It mirrors
+// versions.Take in the API (api/internal/core/versions/take.go), which decodes
+// with DisallowUnknownFields: a key not listed here is refused there, so an
+// agent that can SEE the shape does not have to discover it one 400 at a time
+// (Saltpig shorts: "provider", then "jobId", then "floorDb"). Nested objects
+// set additionalProperties: false, so a client that validates catches the
+// misspelling before the call. The top level does not, for the same reason
+// no tool here does: a stale client's extra key should reach the API and get
+// the API's located error, not be dropped silently by the transport.
+const PROVIDERS = ['higgsfield', 'runway', 'veo', 'kling', 'elevenlabs', 'local', 'other'];
+const ROLES = ['source', 'revoiced', 'final', 'last_frame', 'handoff_frame', 'still', 'audio', 'project', 'export'];
+const REASONS = ['anatomy', 'eyes', 'identity', 'framing', 'order', 'props', 'wardrobe', 'text', 'beat', 'audio', 'model_swap', 'other'];
+const REVIEW_ITEMS = REASONS.filter((r) => !['audio', 'model_swap', 'other'].includes(r));
+
+const closed = (properties, extra = {}) => ({ type: 'object', properties, additionalProperties: false, ...extra });
+
+const fileRefSchema = closed(
+  {
+    provider: { type: 'string', enum: PROVIDERS },
+    role: { type: 'string', enum: ROLES },
+    jobId: { type: 'string', description: 'The generator job id: the durable reference.' },
+    assetId: { type: 'string' },
+    path: { type: 'string', description: 'A local or editor path, stored as written.' },
+    url: { type: 'string', description: 'A convenience only; CDN links expire.' },
+    urlCapturedAt: { type: 'string', description: 'RFC 3339; when the url was copied.' },
+    version: { type: 'string' },
+  },
+  {
+    required: ['provider', 'role'],
+    description: 'A file outside ezQuill. Needs at least one of jobId, path, url.',
+  }
+);
+
+const startImageSchema = closed(
+  {
+    source: { type: 'string', enum: ['none', 'still', 'previous-take', 'upload'] },
+    fromTakeId: { type: 'string', description: 'The take the frame was pulled from (a versionId).' },
+    fromNodeId: { type: 'string', description: 'That take\'s shot.' },
+    note: { type: 'string' },
+    frame: fileRefSchema,
+    frameSeconds: { type: 'number', description: 'Where in that take the frame was pulled.' },
+  },
+  {
+    required: ['source'],
+    description:
+      'Where the clip\'s first frame came from. compile_prompt returns this exact shape as params.startImage ' +
+      '(record_take copies it). NOT the shot\'s start PLAN {kind, fromNodeId, frameTime}, which is a different shape.',
+  }
+);
+
+const audioChecksSchema = closed(
+  {
+    speechPresent: { type: 'boolean' },
+    wrongSpeaker: { type: 'boolean' },
+    noiseFloorDb: { type: 'number' },
+    notes: { type: 'string' },
+  },
+  { description: 'What somebody heard. Omit a field nobody checked: absent means not checked, not fine.' }
+);
+
+const voiceSchema = closed(
+  {
+    voiceId: { type: 'string' },
+    voiceName: { type: 'string' },
+    revoiceJobId: { type: 'string' },
+    tool: { type: 'string', enum: PROVIDERS },
+  },
+  { required: ['voiceId'] }
+);
+
+const verdictReasonSchema = closed(
+  { code: { type: 'string', enum: REASONS }, text: { type: 'string' } },
+  { description: 'Why it was accepted or rejected. A code, some text, or both.' }
+);
+
+const reviewSchema = closed(
+  {
+    marks: {
+      type: 'array',
+      items: closed(
+        {
+          key: { type: 'string', enum: REVIEW_ITEMS },
+          outcome: { type: 'string', enum: ['pass', 'fail'] },
+          note: { type: 'string' },
+        },
+        { required: ['key', 'outcome'] }
+      ),
+    },
+    reviewedAt: { type: 'string' },
+  },
+  { required: ['marks'] }
+);
+
+const stampSchema = closed(
+  {
+    entityId: { type: 'string' },
+    name: { type: 'string' },
+    kind: { type: 'string' },
+    roles: { type: 'array', items: { type: 'string' } },
+    elementId: { type: 'string' },
+    voiceId: { type: 'string' },
+    deprecated: { type: 'boolean' },
+  },
+  { required: ['entityId'] }
+);
+
+/** Fields a take records and an update can change: shared by `take` and `patch`. */
+const movable = {
+  status: { type: 'string', enum: ['pending', 'accepted', 'rejected', 'superseded'] },
+  note: { type: 'string' },
+  verdictReason: verdictReasonSchema,
+  review: reviewSchema,
+  audioChecks: audioChecksSchema,
+  voice: voiceSchema,
+  files: { type: 'array', items: fileRefSchema },
+  lastFrame: fileRefSchema,
+  handoffFrame: fileRefSchema,
+  modelActual: { type: 'string', description: 'What the tool reports it actually used.' },
+  credits: { type: 'number', description: 'What it cost. Omit when unknown: unpriced is not free.' },
 };
+
+const takeSchema = closed(
+  {
+    jobId: { type: 'string', description: 'Required: the durable reference to the clip.' },
+    tool: { type: 'string', enum: PROVIDERS },
+    modelRequested: { type: 'string' },
+    aspectRatio: { type: 'string' },
+    durationSeconds: { type: 'number' },
+    resolution: { type: 'string' },
+    seed: { type: 'integer' },
+    generateAudio: { type: 'boolean' },
+    declinedPresetId: { type: 'string' },
+    prompt: {
+      type: 'string',
+      description: 'Only when you submitted something other than the compile (with wasEdited: true), or when backfilling a take whose prompt you have.',
+    },
+    wasEdited: { type: 'boolean' },
+    promptRef: closed(
+      { tool: { type: 'string', enum: PROVIDERS }, jobId: { type: 'string' } },
+      { required: ['jobId'], description: 'Backfill: the job that holds a prompt you do not have. Stored as a pointer; never fetched.' }
+    ),
+    startImage: startImageSchema,
+    assets: { type: 'array', items: stampSchema, description: 'Defaults to the compile\'s stamps; leave it alone.' },
+    url: { type: 'string', description: 'v1 single clip link. Use files.' },
+    shotAt: { type: 'string', description: 'RFC 3339; when it was generated. Required with backfill.' },
+    ...movable,
+  },
+  {
+    required: ['jobId'],
+    description:
+      'record_take. prompt, params, startImage and asset stamps default to the shot\'s compile at the time of ' +
+      'recording — so record a take when you submit it. For a take generated earlier, set backfill: true.',
+  }
+);
+
+const patchSchema = closed(movable, {
+  description: 'update_take: each field present REPLACES that field; absent fields are left alone.',
+});
 
 export const tools = [
   {
     name: 'manage_production',
     description:
       'Record what was produced for a shortform-video show. record_take: one generation of a shot ' +
-      '(accepted, rejected or pending — record rejected takes too). update_take: its verdict, reason, ' +
-      'review marks, audio checks, voice, files or the model the tool actually used. record_still / ' +
+      '(accepted, rejected or pending — record rejected takes too); set backfill: true for a take generated ' +
+      'earlier, so it is not stamped with today\'s prompt. update_take (by versionId alone): its verdict, reason, ' +
+      'review marks, audio checks, voice, files or the model the tool actually used. A refused field is named ' +
+      'by its path in the error\'s `field`. record_still / ' +
       'record_cue / record_cut: a generated image, a sound cue on a shot, or an episode\'s edit (trims, ' +
       'loudness, export, publishes). update_record / delete_record. set_status: a shot\'s production ' +
       'status (planned, prompting, generating, review, locked, in_cut, published, blocked).',
@@ -53,24 +206,19 @@ export const tools = [
           type: 'string',
           description: 'The shot (record_take, update_take, record_still, record_cue, set_status) or the episode (record_cut).',
         },
-        versionId: { type: 'string', description: 'update_take: the take, as returned by record_take or get_production.' },
-        recordId: { type: 'string', description: 'update_record / delete_record.' },
-        take: {
-          type: 'object',
-          description:
-            'record_take: jobId (required), tool, modelRequested, modelActual, resolution, seed, credits, ' +
-            'status (pending | accepted | rejected | superseded), verdictReason {code, text}, note, ' +
-            'files [FileRef], voice {voiceId, voiceName, revoiceJobId, tool}, audioChecks, lastFrame, ' +
-            'handoffFrame, startImage. prompt, params and asset stamps default to the shot\'s compile — ' +
-            'pass prompt only when you submitted something else, and wasEdited: true with it.',
+        versionId: {
+          type: 'string',
+          description: 'update_take: the take, as returned by record_take or get_production. Enough on its own; nodeId is optional.',
         },
-        patch: {
-          type: 'object',
+        recordId: { type: 'string', description: 'update_record / delete_record.' },
+        take: takeSchema,
+        patch: patchSchema,
+        backfill: {
+          type: 'boolean',
           description:
-            'update_take: any of status, note, verdictReason {code, text}, review, audioChecks, voice, ' +
-            'files, lastFrame, handoffFrame, modelActual, credits. Each replaces that field. ' +
-            'Reason codes: anatomy, eyes, identity, framing, order, props, wardrobe, text, beat, audio, ' +
-            'model_swap, other.',
+            'record_take: the take was generated earlier. Nothing is compiled: today\'s prompt and parameters ' +
+            'are not what was submitted then. Needs take.shotAt. The prompt is recorded as you give it ' +
+            '(take.prompt), as a pointer (take.promptRef), or as not captured.',
         },
         data: {
           type: 'object',
@@ -109,6 +257,7 @@ export const tools = [
           if (!args.take.jobId) {
             throw new ToolError(Code.REQUEST_FAILED, 'record_take needs take.jobId — the durable reference to the clip.');
           }
+          if (args.backfill) return recordBackfilledTake(projectId, args.nodeId, args.take);
           // The compile supplies what the app's ledger records automatically:
           // the prompt as it would be sent, the derived parameters, and the
           // asset stamps a later redesign is checked against.
@@ -120,6 +269,12 @@ export const tools = [
           const take = {
             prompt: compiled.prompt,
             ...(compiled.wasEdited ? { wasEdited: true } : {}),
+            // Supplied text wins below, and says so; otherwise the record is
+            // the compile, made now, at submission.
+            promptSource: args.take.prompt !== undefined ? 'supplied' : 'compiled',
+            // What the compile resolved the clip to open on (#430), in the
+            // take's own shape, so the chain check can read it later.
+            ...(compiled.params?.startImage ? { startImage: compiled.params.startImage } : {}),
             modelRequested: compiled.params?.model,
             aspectRatio: compiled.params?.aspectRatio,
             durationSeconds: compiled.params?.durationSeconds,
@@ -149,13 +304,16 @@ export const tools = [
         }
 
         case 'update_take': {
-          need('nodeId', 'versionId', 'patch');
+          need('versionId', 'patch');
           // Applied by the SERVER to the stored take, under a row lock, so it
-          // cannot erase a status or review somebody changed meanwhile.
-          await call(`/projects/${projectId}/nodes/${args.nodeId}/versions/${args.versionId}/take`, {
-            method: 'PATCH',
-            body: args.patch,
-          });
+          // cannot erase a status or review somebody changed meanwhile. By
+          // version alone (#435): the id is unique, and the server resolves
+          // its shot. A nodeId still takes the nested route, which also
+          // checks the take is that shot's.
+          const path = args.nodeId
+            ? `/projects/${projectId}/nodes/${args.nodeId}/versions/${args.versionId}/take`
+            : `/projects/${projectId}/takes/${args.versionId}`;
+          await call(path, { method: 'PATCH', body: args.patch });
           return { updated: args.versionId };
         }
 
@@ -208,3 +366,44 @@ export const tools = [
     },
   },
 ];
+
+/**
+ * A take generated before it was recorded (ezquill #436).
+ *
+ * Nothing is compiled. A compile now would stamp today's prompt, parameters
+ * and asset stamps on a clip made from different ones — a false record that
+ * reads exactly like a true one, which is worse than a gap. So the take holds
+ * only what the recorder states, and says where its prompt is.
+ */
+async function recordBackfilledTake(projectId, nodeId, given) {
+  if (!given.shotAt) {
+    throw new ToolError(
+      Code.REQUEST_FAILED,
+      'A backfilled take needs take.shotAt: when it was generated. Recording it as now is the error backfill exists to avoid.'
+    );
+  }
+  const promptSource = given.prompt ? 'supplied' : given.promptRef ? 'reference' : 'not-captured';
+  const take = {
+    prompt: '',
+    assets: [],
+    status: 'pending',
+    ...given,
+    promptSource,
+  };
+  const version = await call(`/projects/${projectId}/nodes/${nodeId}/versions`, {
+    method: 'POST',
+    body: {
+      type: 'manual',
+      description: ['Take', 'backfilled', take.modelRequested, take.credits ? `${take.credits} credits` : undefined]
+        .filter(Boolean)
+        .join(' · '),
+      content: { take },
+    },
+  });
+  return {
+    recorded: { versionId: version.id, number: version.versionNumber, status: take.status, promptSource },
+    ...(promptSource === 'not-captured'
+      ? { note: 'Recorded with its prompt not captured. Pass take.prompt or take.promptRef if you have either.' }
+      : {}),
+  };
+}
