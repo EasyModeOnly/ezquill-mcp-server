@@ -22,6 +22,7 @@ import { SERVER_VERSION } from './version.js';
  */
 export const INSTRUCTIONS = `ezQuill holds a writer's manuscript, story world and timeline.
 You are talking to ezquill-mcp-server ${SERVER_VERSION}. If a tool or action named here is missing, your client is caching an older tool list — reconnect it.
+Every tool's description ends with the version it was served at. If a schema you hold names an older one, it was loaded earlier in this conversation and is stale: load that tool's schema again before calling it.
 
 Reading:
 - Prose lives in paragraph-level "block" rows, so a scene's own body is usually
