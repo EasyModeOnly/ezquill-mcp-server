@@ -143,3 +143,126 @@ describe('read_scene on a shot', () => {
     assert.deepEqual(out.production, { status: 'review', takeCount: 2, lockedTakeId: 'v2' });
   });
 });
+
+describe('the take API, from an agent (ezquill epic #40)', () => {
+  const schema = () => tool('manage_production').inputSchema.properties;
+
+  // Saltpig shorts: an agent guessed startImage.provider, then .jobId, then
+  // audioChecks.floorDb, because the shape was only prose (#433).
+  test('declares the take, its start image and its audio checks field by field', () => {
+    const take = schema().take;
+    assert.deepEqual(Object.keys(take.properties.startImage.properties).sort(),
+      ['frame', 'frameSeconds', 'fromNodeId', 'fromTakeId', 'note', 'source']);
+    assert.deepEqual(Object.keys(take.properties.audioChecks.properties).sort(),
+      ['noiseFloorDb', 'notes', 'speechPresent', 'wrongSpeaker']);
+    assert.deepEqual(take.properties.startImage.properties.source.enum, ['none', 'still', 'previous-take', 'upload']);
+    assert.ok(schema().patch.properties.audioChecks, 'update_take can set audio checks');
+  });
+
+  // Mirrors versions.Take and versions.TakePatch in the API. The API refuses a
+  // key not on this list, so a field added there and not here is invisible to
+  // an agent, and one here and not there is a 400 waiting to happen.
+  test('lists exactly the fields the API accepts', () => {
+    const TAKE = ['jobId', 'tool', 'model', 'modelRequested', 'modelActual', 'aspectRatio', 'durationSeconds',
+      'resolution', 'seed', 'generateAudio', 'declinedPresetId', 'credits', 'prompt', 'wasEdited', 'promptSource',
+      'promptRef', 'startImage', 'assets', 'status', 'note', 'url', 'shotAt', 'review', 'verdictReason',
+      'audioChecks', 'voice', 'files', 'lastFrame', 'handoffFrame'];
+    // Set by the connector, never by the agent: the v1 model name and where
+    // the prompt came from.
+    const SET_HERE = ['model', 'promptSource'];
+    assert.deepEqual(Object.keys(schema().take.properties).sort(), TAKE.filter((k) => !SET_HERE.includes(k)).sort());
+    const PATCH = ['status', 'note', 'verdictReason', 'review', 'audioChecks', 'voice', 'files', 'lastFrame',
+      'handoffFrame', 'modelActual', 'credits'];
+    assert.deepEqual(Object.keys(schema().patch.properties).sort(), [...PATCH].sort());
+  });
+
+  test('closes every nested object, so a validating client catches a misspelt key first', () => {
+    const open = [];
+    const walk = (node, path) => {
+      if (!node || typeof node !== 'object') return;
+      if (node.type === 'object' && node.properties && node.additionalProperties !== false) open.push(path);
+      for (const [k, v] of Object.entries(node.properties ?? {})) walk(v, `${path}.${k}`);
+      if (node.items) walk(node.items, `${path}[]`);
+    };
+    walk(schema().take, 'take');
+    walk(schema().patch, 'patch');
+    assert.deepEqual(open, []);
+  });
+
+  // A version id is unique; asking for the shot too was one more thing to get wrong (#435).
+  test('update_take needs only the version', async () => {
+    const sent = stub({ 'PATCH /takes/v9': {} });
+    await run('manage_production', { projectId: 'p', action: 'update_take', versionId: 'v9', patch: { status: 'accepted' } });
+    const req = sent.find((r) => r.method === 'PATCH');
+    assert.equal(req.path, '/api/v1/projects/p/takes/v9');
+  });
+
+  test('records the start frame the compile resolved, and that the prompt is the compile', async () => {
+    const startImage = { source: 'previous-take', fromTakeId: 'v3', fromNodeId: 's0', frame: { provider: 'local', role: 'handoff_frame', path: '/f.png' } };
+    const sent = stub({
+      'POST /api/video/compile': { ...compiled, params: { ...compiled.params, startImage } },
+      'POST /versions': (body) => ({ id: 'v9', versionNumber: 1, ...body }),
+    });
+    await run('manage_production', { projectId: 'p', action: 'record_take', nodeId: 's1', take: { jobId: 'j' } });
+    const take = sent.find((r) => r.path.endsWith('/versions')).body.content.take;
+    assert.deepEqual(take.startImage, startImage);
+    assert.equal(take.promptSource, 'compiled');
+  });
+
+  test('a supplied prompt is recorded as supplied', async () => {
+    const sent = stub({ 'POST /api/video/compile': compiled, 'POST /versions': (b) => ({ id: 'v', ...b }) });
+    await run('manage_production', {
+      projectId: 'p', action: 'record_take', nodeId: 's1', take: { jobId: 'j', prompt: 'WHAT I SENT', wasEdited: true },
+    });
+    const take = sent.find((r) => r.path.endsWith('/versions')).body.content.take;
+    assert.equal(take.prompt, 'WHAT I SENT');
+    assert.equal(take.promptSource, 'supplied');
+  });
+
+  // A take generated weeks ago was stamped with today's compile (#436).
+  describe('backfill', () => {
+    test('compiles nothing and records the prompt as not captured', async () => {
+      const sent = stub({ 'POST /versions': (b) => ({ id: 'v1', versionNumber: 1, ...b }) });
+      const out = await run('manage_production', {
+        projectId: 'p', action: 'record_take', nodeId: 's1', backfill: true,
+        take: { jobId: 'j', status: 'accepted', shotAt: '2026-09-12T10:00:00Z' },
+      });
+      assert.ok(!sent.some((r) => r.path === '/api/video/compile'), 'no compile');
+      const take = sent[0].body.content.take;
+      assert.equal(take.prompt, '');
+      assert.equal(take.promptSource, 'not-captured');
+      assert.deepEqual(take.assets, []);
+      assert.equal(take.shotAt, '2026-09-12T10:00:00Z');
+      assert.equal(out.recorded.promptSource, 'not-captured');
+    });
+
+    test('keeps a pointer to the job that holds the prompt', async () => {
+      const sent = stub({ 'POST /versions': (b) => ({ id: 'v1', ...b }) });
+      await run('manage_production', {
+        projectId: 'p', action: 'record_take', nodeId: 's1', backfill: true,
+        take: { jobId: 'j', shotAt: '2026-09-12T10:00:00Z', promptRef: { tool: 'higgsfield', jobId: 'j' } },
+      });
+      assert.equal(sent[0].body.content.take.promptSource, 'reference');
+    });
+
+    test('refuses to guess when it was shot', async () => {
+      stub({});
+      await assert.rejects(
+        run('manage_production', { projectId: 'p', action: 'record_take', nodeId: 's1', backfill: true, take: { jobId: 'j' } }),
+        /shotAt/
+      );
+    });
+  });
+
+  // The API names the path of a refused key; it has to reach the agent (#434).
+  test('a validation error carries the field it refused', async () => {
+    globalThis.fetch = async () => ({
+      ok: false, status: 400, statusText: 'Bad Request',
+      json: async () => ({ error: { code: 'validation_error', field: 'take.audioChecks.floorDb', message: 'unknown field "floorDb"; allowed here: noiseFloorDb, notes, speechPresent, wrongSpeaker' } }),
+    });
+    await assert.rejects(
+      run('manage_production', { projectId: 'p', action: 'update_take', versionId: 'v9', patch: { audioChecks: { floorDb: -40 } } }),
+      (err) => err.detail?.field === 'take.audioChecks.floorDb' && /noiseFloorDb/.test(err.message)
+    );
+  });
+});

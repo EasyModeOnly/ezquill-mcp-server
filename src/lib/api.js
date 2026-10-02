@@ -86,8 +86,13 @@ export async function call(path, opts = {}) {
 
   if (!response.ok) {
     const { message, body } = await readFailure(response);
+    // A validation error names the field it refused (`content.take.startImage.
+    // provider`). Passed through: it is the one thing an agent needs to fix the
+    // call, and dropping it is how one bad key became three guesses (#434).
+    const field = typeof body?.error?.field === 'string' && body.error.field ? body.error.field : undefined;
     const err = new ToolError(codeForStatus(response.status), message, {
       status: response.status,
+      ...(field ? { field } : {}),
       ...(attempts > 1 ? { attempts } : {}),
     });
     // The parsed body rides on the error for the few callers whose failure
