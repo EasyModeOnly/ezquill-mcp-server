@@ -14,11 +14,12 @@ export const tools = [
     name: 'get_production',
     description:
       'What has been produced in a shortform-video show, and what is next. scope "project": ' +
-      'shots per status, next up, blocked shots with why, unproduced scripts, spend. ' +
+      'shots per status, next up, blocked shots with why, unproduced scripts, spend; each episode ' +
+      'leads with `stage` and `progress` — `gate` is only its furthest-behind shot. ' +
       'scope "episode" (nodeId = the episode): its shots in status columns with takes, credits ' +
-      'and warnings, and its cut. scope "shot" (nodeId = the shot): the locked take and its ' +
+      'and warnings, its cut, and the rules that hold only in it. scope "shot" (nodeId = the shot): the locked take and its ' +
       'files, rejected takes with reasons, the start-frame chain, stills and sound cues, plus `fields` — ' +
-      'the framing, camera, left-to-right order, length and prompt action the compiler reads — and ' +
+      'the framing, camera, left-to-right order, length, prompt action and rule overrides the compiler reads — and ' +
       '`startPlan`. scope "show": the house prompt template, the show settings, the show-wide rules, and ' +
       'every entity kind with the profile and production fields it takes. Read it before changing any of them.',
     inputSchema: {
@@ -46,8 +47,8 @@ export const tools = [
       "Compile a shot's generation prompt from its cast, set, props, rules and the show's " +
       'prompt template — the prompt ezQuill shows for that shot. Returns `prompt` (what to ' +
       'submit: the writer\'s hand edit when there is one), `params` (model, duration, aspect ' +
-      'ratio, whether to generate audio), `diagnostics` (blocking ones mean do not submit), and ' +
-      '`assets`. Submit exactly `prompt`, then record the take with manage_production record_take.',
+      'ratio, whether to generate audio), `diagnostics` (blocking ones mean do not submit), ' +
+      '`overridden` (rules this shot deliberately drops), and `assets`. Submit exactly `prompt`, then record the take with manage_production record_take.',
     inputSchema: {
       type: 'object',
       properties: {

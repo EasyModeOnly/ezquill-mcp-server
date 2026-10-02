@@ -26,6 +26,7 @@ const ACTIONS = [
   'record_take', 'update_take',
   'record_still', 'record_cue', 'record_cut', 'update_record', 'delete_record',
   'set_status', 'set_shot', 'set_prompt_template', 'add_rule', 'remove_rule',
+  'override_rule', 'clear_override',
 ];
 
 // A shot's production fields (ezquill #431): what the compiler reads for its
@@ -56,7 +57,10 @@ const shotSchema = {
       description: 'Character entity ids, camera-left to camera-right. The prompt states an order only when this covers everyone in frame.',
     }),
     wideFraming: nullable({ type: 'boolean', description: "Whether the set's geography is visible." }),
-    durationSeconds: nullable({ type: 'number', description: 'Clip length. Unset: 6s with a line, 4s without.' }),
+    durationSeconds: nullable({
+      type: 'number',
+      description: 'Clip length. Unset: fitted to the line (its words, plus a 1s tail), or the show default; 4s with no line.',
+    }),
     action: nullable({
       type: 'string',
       description: 'What the SHOT block says, written for the model. Unset: the script prose is sent as written.',
@@ -268,9 +272,27 @@ const takeSchema = closed(
   }
 );
 
-const patchSchema = closed(movable, {
-  description: 'update_take: each field present REPLACES that field; absent fields are left alone.',
-});
+const patchSchema = closed(
+  {
+    ...movable,
+    // A prompt can be RETRACTED, never written afterwards (ezquill #446): a
+    // take backfilled with a pointer string in `prompt` and wasEdited set can
+    // be put right without re-recording it.
+    promptSource: {
+      type: 'string',
+      enum: ['not-captured', 'reference'],
+      description: 'Correct a prompt the take never held: not-captured (nobody has it) or reference (with promptRef). Both clear prompt and wasEdited.',
+    },
+    promptRef: closed(
+      { tool: { type: 'string', enum: PROVIDERS }, jobId: { type: 'string' } },
+      { required: ['jobId'], description: 'The job that holds the prompt. Alone, it implies promptSource reference.' }
+    ),
+  },
+  {
+    description:
+      'update_take: each field present REPLACES that field; absent fields are left alone. The prompt text itself cannot be patched.',
+  }
+);
 
 export const tools = [
   {
@@ -286,8 +308,11 @@ export const tools = [
       'status (planned, prompting, generating, review, locked, in_cut, published, blocked). ' +
       'set_shot: a shot\'s framing, camera, left-to-right order, length, prompt action or start plan — ' +
       'what compile_prompt reads. set_prompt_template: the show\'s house template (style line, standing ' +
-      'blocks). add_rule / remove_rule: a continuity rule on the show, or on one entity with entityId ' +
-      '(Sal\'s "exactly two ears" is an entity rule; NO FADES is a template block).',
+      'blocks). add_rule / remove_rule: a continuity rule on the show, on one entity with entityId ' +
+      '(Sal\'s "exactly two ears"), or on one episode with episodeId (this episode\'s wardrobe). NO FADES is ' +
+      'a template block. override_rule: one shot (nodeId) deliberately breaks a rule — name it by rule.block ' +
+      '(+ rule.text when its owner has several in that block) and entityId / episodeId as for add_rule; give ' +
+      'a reason, and a replacement to have the prompt say what holds instead. clear_override undoes it.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -329,7 +354,19 @@ export const tools = [
         shot: shotSchema,
         template: templateSchema,
         rule: ruleSchema,
-        entityId: { type: 'string', description: 'add_rule / remove_rule: the entity the rule is about. Omit for a show-wide rule.' },
+        entityId: {
+          type: 'string',
+          description: 'add_rule / remove_rule / override_rule / clear_override: the entity the rule is about. Omit for a show or episode rule.',
+        },
+        episodeId: {
+          type: 'string',
+          description: 'add_rule / remove_rule / override_rule / clear_override: the episode a rule holds in, for one that is not show-wide.',
+        },
+        reason: { type: 'string', description: 'override_rule: why this shot is the exception. Required.' },
+        replacement: {
+          type: 'string',
+          description: 'override_rule: what holds instead, said to the model in an OVERRIDE block ("Sal has a third arm"). Omit to only drop the rule.',
+        },
         file: fileRefSchema,
       },
       required: ['projectId', 'action'],
@@ -472,12 +509,55 @@ export const tools = [
           return { promptTemplate: stored };
         }
 
+        case 'override_rule': {
+          need('nodeId', 'rule', 'reason');
+          // The override snapshots the rule's text, so that rewording the rule
+          // later re-raises the exception instead of silently keeping it. The
+          // snapshot is READ here, not typed by the agent: a near-miss copy
+          // would be an override that matches nothing.
+          const rule = await findRule(projectId, args, args.rule);
+          const out = await call(`/projects/${projectId}/nodes/${args.nodeId}/shot/overrides`, {
+            method: 'POST',
+            body: {
+              ...(args.entityId ? { entityId: args.entityId } : {}),
+              block: rule.block,
+              textAtOverride: rule.text,
+              reason: args.reason,
+              ...(args.replacement ? { replacement: args.replacement } : {}),
+            },
+          });
+          return {
+            overrides: out.overrides,
+            ...(args.replacement
+              ? {}
+              : { note: 'The rule is dropped from this shot and nothing replaces it. Pass replacement to have the prompt say what holds instead.' }),
+          };
+        }
+
+        case 'clear_override': {
+          need('nodeId', 'rule');
+          const out = await call(`/projects/${projectId}/nodes/${args.nodeId}/shot/overrides/remove`, {
+            method: 'POST',
+            body: {
+              ...(args.entityId ? { entityId: args.entityId } : {}),
+              block: args.rule.block,
+              ...(args.rule.text ? { textAtOverride: args.rule.text } : {}),
+            },
+          });
+          return { removed: out.removed, overrides: out.overrides };
+        }
+
         case 'add_rule':
         case 'remove_rule': {
           need('rule');
+          if (args.entityId && args.episodeId) {
+            throw new ToolError(Code.REQUEST_FAILED, `${action}: a rule is on an entity OR an episode, not both.`);
+          }
           const base = args.entityId
             ? `/projects/${projectId}/entities/${args.entityId}/rules`
-            : `/projects/${projectId}/show-rules`;
+            : args.episodeId
+              ? `/projects/${projectId}/nodes/${args.episodeId}/rules`
+              : `/projects/${projectId}/show-rules`;
           if (action === 'add_rule') {
             // origin 'agent' is what keeps it across a bible re-import: the
             // import replaces only the rules it wrote itself.
@@ -504,6 +584,48 @@ export const tools = [
     },
   },
 ];
+
+/**
+ * The rule an override names, read from where it lives: the entity, the
+ * episode, or the show. By block alone when its owner has one rule there; with
+ * rule.text when it has several, so an agent never overrides the wrong one.
+ */
+async function findRule(projectId, { entityId, episodeId }, wanted) {
+  const block = String(wanted.block ?? '').trim().toUpperCase();
+  let rules;
+  let owner;
+  if (entityId) {
+    const entity = await call(`/projects/${projectId}/entities/${entityId}`);
+    rules = entity?.metadata?.bible?.rules;
+    owner = entity?.name ?? entityId;
+  } else if (episodeId) {
+    const episode = await call(`/projects/${projectId}/nodes/${episodeId}`);
+    rules = episode?.metadata?.bible?.rules;
+    owner = episode?.title ?? 'that episode';
+  } else {
+    const project = await call(`/projects/${projectId}`);
+    rules = project?.metadata?.showBible?.rules;
+    owner = 'the show';
+  }
+  const inBlock = (Array.isArray(rules) ? rules : []).filter(
+    (r) => r && typeof r.text === 'string' && String(r.block ?? '').toUpperCase() === block
+  );
+  const text = wanted.text?.trim();
+  const matches = text ? inBlock.filter((r) => r.text.trim() === text) : inBlock;
+  if (matches.length === 1) return { block, text: matches[0].text };
+  if (matches.length === 0) {
+    throw new ToolError(
+      Code.REQUEST_FAILED,
+      `${owner} has no ${block} rule${text ? ` reading "${text}"` : ''}. Its ${block} rules: ${
+        inBlock.map((r) => `"${r.text}"`).join(', ') || 'none'
+      }. Name an episode rule with episodeId, an entity's with entityId.`
+    );
+  }
+  throw new ToolError(
+    Code.REQUEST_FAILED,
+    `${owner} has ${matches.length} ${block} rules; pass rule.text to say which: ${matches.map((r) => `"${r.text}"`).join(', ')}.`
+  );
+}
 
 /**
  * A take generated before it was recorded (ezquill #436).
