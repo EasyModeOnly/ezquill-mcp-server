@@ -266,3 +266,71 @@ describe('the take API, from an agent (ezquill epic #40)', () => {
     );
   });
 });
+
+describe('shot fields, the house template and rules, from an agent (ezquill #431 #432 #439)', () => {
+  test('set_shot patches only the fields sent, server-side', async () => {
+    const sent = stub({ 'PATCH /nodes/s6/shot': { id: 's6', metadata: { shot: { camera: { move: 'tracking' } } } } });
+    const out = await run('manage_production', {
+      projectId: 'p', action: 'set_shot', nodeId: 's6', shot: { camera: { move: 'tracking' }, castOrder: null },
+    });
+    assert.equal(sent[0].path, '/api/v1/projects/p/nodes/s6/shot');
+    assert.deepEqual(sent[0].body, { camera: { move: 'tracking' }, castOrder: null });
+    assert.deepEqual(out, { nodeId: 's6', shot: { camera: { move: 'tracking' } } });
+  });
+
+  test('set_prompt_template puts the whole template', async () => {
+    const sent = stub({ 'PUT /prompt-template': { style: 'House.' } });
+    await run('manage_production', {
+      projectId: 'p', action: 'set_prompt_template',
+      template: { style: 'House.', extraBlocks: [{ name: 'NO FADES', text: 'No fades.', after: 'SHOT' }] },
+    });
+    assert.equal(sent[0].method, 'PUT');
+    assert.equal(sent[0].path, '/api/v1/projects/p/prompt-template');
+  });
+
+  test('add_rule writes to the entity when named, and marks it as the agent\'s', async () => {
+    const sent = stub({ 'POST /rules': { rules: [] } });
+    await run('manage_production', {
+      projectId: 'p', action: 'add_rule', entityId: 'sal', rule: { block: 'EARS', text: 'Exactly two ears.' },
+    });
+    assert.equal(sent[0].path, '/api/v1/projects/p/entities/sal/rules');
+    assert.equal(sent[0].body.origin, 'agent');
+  });
+
+  test('remove_rule on the show says when the bible will put it back', async () => {
+    const sent = stub({ 'POST /show-rules/remove': { removed: true, imported: true, rules: [] } });
+    const out = await run('manage_production', {
+      projectId: 'p', action: 'remove_rule', rule: { block: 'AUDIO', text: 'no music' },
+    });
+    assert.equal(sent[0].path, '/api/v1/projects/p/show-rules/remove');
+    assert.match(out.note, /next bible import/);
+  });
+
+  test('manage_entity refuses rules inside production, where nothing reads them', async () => {
+    stub({});
+    await assert.rejects(
+      run('manage_entity', { projectId: 'p', action: 'update', entityId: 'sal', production: { rules: [] } }),
+      /add_rule/
+    );
+  });
+
+  // A whole cast was imported with look lines in profile, where the compiler
+  // never looks; get_entity now says so, and returns the shipped kind's fields.
+  test('get_entity returns rules, the shipped kind\'s fields, and what profile shadows', async () => {
+    stub({
+      'GET /entities/sal': {
+        id: 'sal', name: 'Sal', kind: 'character', profile: { look: 'a pink pig' },
+        metadata: { bible: { elementId: 'EL', rules: [{ block: 'EYES', text: 'black dots' }, { block: 'EARS', text: 'two', origin: 'agent' }] } },
+      },
+      '/api/video/production': {
+        scope: 'show',
+        show: { entityKinds: [{ kind: 'character', label: 'Character', fields: [{ key: 'role', label: 'Role', type: 'text' }], productionFields: [{ key: 'look', label: 'Look', type: 'longtext' }] }] },
+      },
+    });
+    const out = await run('get_entity', { projectId: 'p', entityId: 'sal' });
+    assert.deepEqual(out.rules, [{ block: 'EYES', text: 'black dots' }, { block: 'EARS', text: 'two', origin: 'agent' }]);
+    assert.deepEqual(out.template.productionFields.map((f) => f.key), ['look']);
+    assert.equal(out.warnings.length, 1);
+    assert.match(out.warnings[0], /profile\.look is set but production\.look is not/);
+  });
+});

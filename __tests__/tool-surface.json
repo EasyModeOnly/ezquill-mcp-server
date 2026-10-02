@@ -1,5 +1,5 @@
 {
-  "version": "0.10.0",
+  "version": "0.11.0",
   "tools": {
     "authenticate": {
       "params": [
@@ -184,22 +184,30 @@
         "action",
         "backfill",
         "data",
+        "entityId",
         "file",
         "nodeId",
         "note",
         "patch",
         "projectId",
         "recordId",
+        "rule",
+        "shot",
         "status",
         "take",
+        "template",
         "versionId"
       ],
       "actions": [
+        "add_rule",
         "delete_record",
         "record_cue",
         "record_cut",
         "record_still",
         "record_take",
+        "remove_rule",
+        "set_prompt_template",
+        "set_shot",
         "set_status",
         "update_record",
         "update_take"
