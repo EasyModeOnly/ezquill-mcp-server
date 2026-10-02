@@ -46,10 +46,18 @@ export function createServer({ surface = 'local' } = {}) {
     }
   );
 
+  // Every description carries the version it was served at (ezquill #440).
+  // A resumed conversation keeps the schemas an agent loaded EARLIER in its
+  // transcript, while the client refreshes only the list of names: so after a
+  // release, new tools arrive fresh and old ones are still called with their
+  // old shapes, and nothing says which is which. Stamped, a stale schema reads
+  // as older than the instructions' version line, and the agent can reload it.
+  // The server cannot push the change instead: it is stateless over HTTP, with
+  // no session to send tools/list_changed on.
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: tools.map(({ name, description, inputSchema, annotations }) => ({
       name,
-      description,
+      description: stampVersion(description),
       inputSchema,
       annotations,
     })),
@@ -165,3 +173,6 @@ async function signInPrompt(err) {
     return null;
   }
 }
+
+/** A tool description with the version it was served at. Exported for the test. */
+export const stampVersion = (description) => `${description} [ezquill-mcp-server ${SERVER_VERSION}]`;

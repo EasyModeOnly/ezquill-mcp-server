@@ -22,6 +22,7 @@ import { SERVER_VERSION } from './version.js';
  */
 export const INSTRUCTIONS = `ezQuill holds a writer's manuscript, story world and timeline.
 You are talking to ezquill-mcp-server ${SERVER_VERSION}. If a tool or action named here is missing, your client is caching an older tool list — reconnect it.
+Every tool's description ends with the version it was served at. If a schema you hold names an older one, it was loaded earlier in this conversation and is stale: load that tool's schema again before calling it.
 
 Reading:
 - Prose lives in paragraph-level "block" rows, so a scene's own body is usually
@@ -82,6 +83,15 @@ Changing things:
   read what is next or blocked with get_production. Never create research
   entities to hold production state: takes, stills, cues and cuts have their
   own records.
+- When a compile states something wrong about a shot — the camera, who is
+  left of whom, the length, script notes in the SHOT block — fix the shot with
+  manage_production set_shot, not with a hand edit: the compiler states only
+  what the shot records. House-wide wording belongs in the prompt template
+  (set_prompt_template), and a lesson about one character, set or prop is a
+  rule on that entity (add_rule with entityId, with the incident that taught
+  it). Read get_production scope "show" before changing either.
+- A take generated earlier is recorded with backfill: true and its shotAt, so
+  it is not stamped with today's prompt.
 - Creating a character is cheap to do and expensive to undo: it joins the cast
   lists, the timeline filters and every future prompt, and will look like
   something the writer created. Ask first.

@@ -17,12 +17,15 @@ export const tools = [
       'shots per status, next up, blocked shots with why, unproduced scripts, spend. ' +
       'scope "episode" (nodeId = the episode): its shots in status columns with takes, credits ' +
       'and warnings, and its cut. scope "shot" (nodeId = the shot): the locked take and its ' +
-      'files, rejected takes with reasons, the start-frame chain, stills and sound cues.',
+      'files, rejected takes with reasons, the start-frame chain, stills and sound cues, plus `fields` — ' +
+      'the framing, camera, left-to-right order, length and prompt action the compiler reads — and ' +
+      '`startPlan`. scope "show": the house prompt template, the show settings, the show-wide rules, and ' +
+      'every entity kind with the profile and production fields it takes. Read it before changing any of them.',
     inputSchema: {
       type: 'object',
       properties: {
         projectId: { type: 'string' },
-        scope: { type: 'string', enum: ['project', 'episode', 'shot'] },
+        scope: { type: 'string', enum: ['project', 'episode', 'shot', 'show'] },
         nodeId: { type: 'string', description: 'The episode or shot, for those scopes.' },
       },
       required: ['projectId'],

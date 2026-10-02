@@ -102,6 +102,15 @@ export const tools = [
           //
           // `metadata` is assigned the same way, and holds the bible import's
           // key and rules beside the production layer, so it is rebuilt too.
+          if (args.production && 'rules' in args.production) {
+            // The compiler reads an entity's rules from its bible, where
+            // add_rule writes them; a `rules` key here would be stored and
+            // never read (ezquill #432).
+            throw new ToolError(
+              Code.REQUEST_FAILED,
+              'rules are not a production field. Use manage_production add_rule with entityId.'
+            );
+          }
           const current =
             args.profile || args.production ? await call(`${base}/${args.entityId}`) : null;
           const profile = args.profile

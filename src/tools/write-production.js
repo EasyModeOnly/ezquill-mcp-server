@@ -20,11 +20,99 @@
 import { call } from '../lib/api.js';
 import { ToolError, Code } from '../lib/errors.js';
 
+const closed = (properties, extra = {}) => ({ type: 'object', properties, additionalProperties: false, ...extra });
+
 const ACTIONS = [
   'record_take', 'update_take',
   'record_still', 'record_cue', 'record_cut', 'update_record', 'delete_record',
-  'set_status',
+  'set_status', 'set_shot', 'set_prompt_template', 'add_rule', 'remove_rule',
 ];
+
+// A shot's production fields (ezquill #431): what the compiler reads for its
+// CAMERA, SHOT and params blocks, which only the web composer could write.
+// Mirrors nodes.ShotPatch in the API. null clears a field: unstated is a real
+// answer, and the compiler then says nothing about it rather than guessing.
+const nullable = (schema) => ({ ...schema, type: [schema.type, 'null'] });
+const shotSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    'set_shot: only the fields to change; null clears one. Read get_production scope "shot" `fields` first.',
+  properties: {
+    framing: nullable({ type: 'string', description: 'What the camera holds: "a chest-up two-shot".' }),
+    camera: {
+      type: ['object', 'null'],
+      additionalProperties: false,
+      required: ['move'],
+      description: 'How the camera moves. Only locked emits FIXED / never pulls back. Unset: nothing is said.',
+      properties: {
+        move: { type: 'string', enum: ['locked', 'tracking', 'handheld', 'push-in', 'pull-out', 'pan'] },
+        note: { type: 'string', description: '"follows Sal down the corridor"' },
+      },
+    },
+    castOrder: nullable({
+      type: 'array',
+      items: { type: 'string' },
+      description: 'Character entity ids, camera-left to camera-right. The prompt states an order only when this covers everyone in frame.',
+    }),
+    wideFraming: nullable({ type: 'boolean', description: "Whether the set's geography is visible." }),
+    durationSeconds: nullable({ type: 'number', description: 'Clip length. Unset: 6s with a line, 4s without.' }),
+    action: nullable({
+      type: 'string',
+      description: 'What the SHOT block says, written for the model. Unset: the script prose is sent as written.',
+    }),
+    startImage: {
+      type: ['object', 'null'],
+      additionalProperties: false,
+      required: ['kind'],
+      description: 'The start PLAN. kind chain = the last frame of the shot before; still / upload = an image.',
+      properties: {
+        kind: { type: 'string', enum: ['chain', 'still', 'upload'] },
+        fromNodeId: { type: 'string' },
+        frameTime: { type: 'number' },
+        mediaId: { type: 'string' },
+      },
+    },
+  },
+};
+
+const templateSchema = closed(
+  {
+    style: { type: 'string', description: 'The STYLE line every prompt opens with.' },
+    preamble: { type: 'string' },
+    tail: { type: 'string' },
+    blocks: {
+      type: 'object',
+      description: 'Per compiler block (CAST, CAMERA, NO-TEXT…): {enabled: false} or {heading}. Switching a block off keeps its rules.',
+      additionalProperties: closed({ enabled: { type: 'boolean' }, heading: { type: 'string' } }),
+    },
+    extraBlocks: {
+      type: 'array',
+      description: 'Standing blocks of the house (EYES, FIRST FRAME, NO FADES, KEEPS MOVING…), each placed after a compiler block.',
+      items: closed(
+        { name: { type: 'string' }, text: { type: 'string' }, after: { type: 'string' } },
+        { required: ['name', 'text', 'after'] }
+      ),
+    },
+  },
+  {
+    description:
+      'set_prompt_template: the WHOLE template — it replaces what is there. Read get_production scope "show" ' +
+      'promptTemplate first and send it back with your change. The template edits and toggles; block order is the compiler\'s.',
+  }
+);
+
+const ruleSchema = closed(
+  {
+    block: { type: 'string', description: 'The block it belongs in: EYES, EARS, ANATOMY, WARDROBE, PROPS, CAMERA, AUDIO…' },
+    text: { type: 'string' },
+    incident: {
+      type: 'string',
+      description: 'add_rule: what went wrong that this rule prevents — the take, what it cost. A rule nobody can justify is the first one cut.',
+    },
+  },
+  { required: ['block', 'text'] }
+);
 
 // The take's shape, declared field by field (ezquill #433). It mirrors
 // versions.Take in the API (api/internal/core/versions/take.go), which decodes
@@ -40,7 +128,6 @@ const ROLES = ['source', 'revoiced', 'final', 'last_frame', 'handoff_frame', 'st
 const REASONS = ['anatomy', 'eyes', 'identity', 'framing', 'order', 'props', 'wardrobe', 'text', 'beat', 'audio', 'model_swap', 'other'];
 const REVIEW_ITEMS = REASONS.filter((r) => !['audio', 'model_swap', 'other'].includes(r));
 
-const closed = (properties, extra = {}) => ({ type: 'object', properties, additionalProperties: false, ...extra });
 
 const fileRefSchema = closed(
   {
@@ -196,7 +283,11 @@ export const tools = [
       'by its path in the error\'s `field`. record_still / ' +
       'record_cue / record_cut: a generated image, a sound cue on a shot, or an episode\'s edit (trims, ' +
       'loudness, export, publishes). update_record / delete_record. set_status: a shot\'s production ' +
-      'status (planned, prompting, generating, review, locked, in_cut, published, blocked).',
+      'status (planned, prompting, generating, review, locked, in_cut, published, blocked). ' +
+      'set_shot: a shot\'s framing, camera, left-to-right order, length, prompt action or start plan — ' +
+      'what compile_prompt reads. set_prompt_template: the show\'s house template (style line, standing ' +
+      'blocks). add_rule / remove_rule: a continuity rule on the show, or on one entity with entityId ' +
+      '(Sal\'s "exactly two ears" is an entity rule; NO FADES is a template block).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -235,6 +326,10 @@ export const tools = [
           description: 'set_status: the new status, or null to stop tracking the shot.',
         },
         note: { type: 'string', description: 'set_status: why — required in spirit for blocked.' },
+        shot: shotSchema,
+        template: templateSchema,
+        rule: ruleSchema,
+        entityId: { type: 'string', description: 'add_rule / remove_rule: the entity the rule is about. Omit for a show-wide rule.' },
         file: fileRefSchema,
       },
       required: ['projectId', 'action'],
@@ -358,6 +453,49 @@ export const tools = [
             body: { status: args.status, ...(args.note !== undefined ? { note: args.note } : {}) },
           });
           return { nodeId: node.id, productionStatus: node.productionStatus ?? null, note: node.productionNote };
+        }
+
+        case 'set_shot': {
+          need('nodeId', 'shot');
+          // Merged by the SERVER into metadata.shot under a row lock (#431):
+          // the composer's own keys and every other view's metadata survive.
+          const node = await call(`/projects/${projectId}/nodes/${args.nodeId}/shot`, {
+            method: 'PATCH',
+            body: args.shot,
+          });
+          return { nodeId: node.id, shot: node.metadata?.shot ?? {} };
+        }
+
+        case 'set_prompt_template': {
+          need('template');
+          const stored = await call(`/projects/${projectId}/prompt-template`, { method: 'PUT', body: args.template });
+          return { promptTemplate: stored };
+        }
+
+        case 'add_rule':
+        case 'remove_rule': {
+          need('rule');
+          const base = args.entityId
+            ? `/projects/${projectId}/entities/${args.entityId}/rules`
+            : `/projects/${projectId}/show-rules`;
+          if (action === 'add_rule') {
+            // origin 'agent' is what keeps it across a bible re-import: the
+            // import replaces only the rules it wrote itself.
+            const out = await call(base, { method: 'POST', body: { ...args.rule, origin: 'agent' } });
+            return { rules: out.rules };
+          }
+          const out = await call(`${base}/remove`, {
+            method: 'POST',
+            body: { block: args.rule.block, text: args.rule.text },
+          });
+          return {
+            removed: out.removed,
+            rules: out.rules,
+            ...(out.imported
+              ? { note: 'That rule came from the show bible; the next bible import will put it back unless the bible changes.' }
+              : {}),
+            ...(!out.removed ? { note: 'No rule with that block and text.' } : {}),
+          };
         }
 
         default:

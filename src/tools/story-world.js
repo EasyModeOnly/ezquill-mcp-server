@@ -83,15 +83,25 @@ export const tools = [
 
     async handler({ projectId, entityId }) {
       const base = `/projects/${projectId}/entities/${entityId}`;
-      const [entity, relations, appearances, project] = await Promise.all([
+      const [entity, relations, appearances, project, show] = await Promise.all([
         call(base),
         call(`${base}/relations`).catch(() => null),
         call(`${base}/appearances`).catch(() => null),
         call(`/projects/${projectId}`).catch(() => null),
+        // The kind registry is the web app's TypeScript, so the shipped kinds'
+        // fields come from it rather than from a copy here (ezquill #439).
+        call('/api/video/production', { app: true, query: { projectId, scope: 'show' } }).catch(() => null),
       ]);
-      // The fields this project adds to (or defines for) the entity's kind, so
-      // an agent knows which profile and production keys the form shows.
-      const template = readEntityTemplates(project?.metadata)[entity.kind];
+      // The fields the entity's kind takes — shipped, or added by the project —
+      // so an agent knows which keys go in profile and which in production.
+      const shipped = show?.show?.entityKinds?.find((k) => k.kind === entity.kind);
+      const projectTemplate = readEntityTemplates(project?.metadata)[entity.kind];
+      const template = shipped
+        ? { label: shipped.label, fields: shipped.fields, productionFields: shipped.productionFields }
+        : projectTemplate;
+      const production = resolveProduction(entity.metadata);
+      const profile = resolveProfile(entity.profile);
+      const warnings = shadowedProductionKeys(profile, production, template?.productionFields ?? []);
 
       return {
         id: entity.id,
@@ -102,7 +112,7 @@ export const tools = [
         // Resolved, so a caller cannot read the imported value over the
         // writer's edit. See lib/profile.js — the rule otherwise lives only in
         // the web app, and reading the raw blob fails silently.
-        profile: resolveProfile(entity.profile),
+        profile,
         ...(template
           ? {
               template: {
@@ -114,9 +124,11 @@ export const tools = [
           : {}),
         // What the video generator draws it from, resolved the same way: an
         // edit over the imported bible. Absent for anything with none.
-        ...(Object.keys(resolveProduction(entity.metadata)).length > 0
-          ? { production: resolveProduction(entity.metadata) }
-          : {}),
+        ...(Object.keys(production).length > 0 ? { production } : {}),
+        // Its continuity rules, folded into the block each names when a shot
+        // it is in compiles. origin absent = written by the bible import.
+        ...(readRules(entity.metadata).length > 0 ? { rules: readRules(entity.metadata) } : {}),
+        ...(warnings.length > 0 ? { warnings } : {}),
         // `kind` here is already the inverse when the edge points the other
         // way, so one directed row reads correctly from either end and this
         // needs no flipping: (Ana)-[parent_of]->(Bea) reads back on Bea as
@@ -138,3 +150,37 @@ export const tools = [
     },
   },
 ];
+
+/** An entity's rules as stored on its bible. */
+function readRules(metadata) {
+  const bible = metadata && typeof metadata === 'object' ? metadata.bible : undefined;
+  const rules = bible && Array.isArray(bible.rules) ? bible.rules : [];
+  return rules
+    .filter((r) => r && typeof r.block === 'string' && typeof r.text === 'string')
+    .map((r) => ({
+      block: r.block,
+      text: r.text,
+      ...(r.incident ? { incident: r.incident } : {}),
+      ...(r.origin ? { origin: r.origin } : {}),
+    }));
+}
+
+/**
+ * Profile keys that share a name with a production field the compiler reads,
+ * where the production value is missing or different (ezquill #439). A look
+ * line in `profile` is never drawn: that is how a whole cast was imported
+ * un-drawable, and nothing on screen said so.
+ */
+function shadowedProductionKeys(profile, production, productionFields) {
+  const out = [];
+  for (const { key } of productionFields) {
+    const inProfile = profile?.[key];
+    if (inProfile === undefined || inProfile === null || inProfile === '') continue;
+    if (production[key] === undefined) {
+      out.push(`profile.${key} is set but production.${key} is not: the prompt compiler reads only production. Move it with manage_entity update production.`);
+    } else if (JSON.stringify(production[key]) !== JSON.stringify(inProfile)) {
+      out.push(`profile.${key} differs from production.${key}; the compiler uses production.`);
+    }
+  }
+  return out;
+}
