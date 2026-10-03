@@ -350,7 +350,7 @@ export const tools = [
             'tool, model, jobId, prompt, files, forTakeId, fromTakeId}. record_cue: {type: sfx | music_bed | ' +
             'splice | repair | voice, title, status: idea | sourced | placed | approved, source {tool, jobId, ' +
             'library, trackId, file}, placement {inSeconds, outSeconds}}. record_cut: {trims [{shotNodeId, ' +
-            'takeId, inSeconds, outSeconds}], loudness {targetLufs, measuredLufs, passedAt}, editorProject, ' +
+            'takeId, inSeconds, outSeconds}] (merged by shot into a cut already there), loudness {targetLufs, measuredLufs, passedAt}, editorProject, ' +
             'finalExport, publishes [{destination, url, publishedAt}]}. update_record: the fields to change.',
         },
         status: {
@@ -456,9 +456,37 @@ export const tools = [
           return { updated: args.versionId };
         }
 
-        case 'record_still':
-        case 'record_cue':
         case 'record_cut': {
+          need('nodeId', 'data');
+          // An episode has ONE live cut (a unique index), so a second POST is
+          // refused — and the episode view used to give no id to update it by
+          // (ezquill #451). So record_cut extends the cut that is there: a
+          // trim replaces that shot's trim and keeps the others, a publish
+          // replaces that destination's, and every other key is laid over.
+          const existing = await call(`/projects/${projectId}/production-records`, {
+            query: { nodeId: args.nodeId, kind: 'cut' },
+          });
+          const current = existing?.records?.[0];
+          if (!current) {
+            const record = await call(`/projects/${projectId}/production-records`, {
+              method: 'POST',
+              body: { nodeId: args.nodeId, kind: 'cut', data: args.data },
+            });
+            return { recorded: { id: record.id, kind: record.kind, nodeId: record.nodeId } };
+          }
+          const record = await call(`/projects/${projectId}/production-records/${current.id}`, {
+            method: 'PATCH',
+            body: { data: mergeCut(current.data ?? {}, args.data) },
+          });
+          return {
+            recorded: { id: record.id, kind: record.kind, nodeId: record.nodeId },
+            merged: true,
+            trims: record.data?.trims ?? [],
+          };
+        }
+
+        case 'record_still':
+        case 'record_cue': {
           need('nodeId', 'data');
           const kind = action.slice('record_'.length);
           const record = await call(`/projects/${projectId}/production-records`, {
@@ -594,6 +622,30 @@ export const tools = [
     },
   },
 ];
+
+/**
+ * An episode's cut with more laid over it. Lists are merged by their key — a
+ * trim by its shot, a publish by its destination — so adding shot 5's trim
+ * cannot drop shots 1–4's, which a plain spread of `trims` would.
+ */
+export function mergeCut(stored, given) {
+  const byKey = (list, key, more) => {
+    if (!Array.isArray(more)) return list ?? [];
+    const out = [...(Array.isArray(list) ? list : [])];
+    for (const item of more) {
+      const i = out.findIndex((o) => o?.[key] === item?.[key]);
+      if (i >= 0) out[i] = item;
+      else out.push(item);
+    }
+    return out;
+  };
+  return {
+    ...stored,
+    ...given,
+    trims: byKey(stored.trims, 'shotNodeId', given.trims),
+    publishes: byKey(stored.publishes, 'destination', given.publishes),
+  };
+}
 
 /**
  * The rule an override names, read from where it lives: the entity, the
