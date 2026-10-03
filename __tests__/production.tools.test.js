@@ -171,8 +171,10 @@ describe('the take API, from an agent (ezquill epic #40)', () => {
     // the prompt came from.
     const SET_HERE = ['model', 'promptSource'];
     assert.deepEqual(Object.keys(schema().take.properties).sort(), TAKE.filter((k) => !SET_HERE.includes(k)).sort());
+    // promptSource and promptRef retract a prompt (ezquill #446); the text
+    // itself is never patchable.
     const PATCH = ['status', 'note', 'verdictReason', 'review', 'audioChecks', 'voice', 'files', 'lastFrame',
-      'handoffFrame', 'modelActual', 'credits'];
+      'handoffFrame', 'modelActual', 'credits', 'promptSource', 'promptRef'];
     assert.deepEqual(Object.keys(schema().patch.properties).sort(), [...PATCH].sort());
   });
 
@@ -304,6 +306,68 @@ describe('shot fields, the house template and rules, from an agent (ezquill #431
     });
     assert.equal(sent[0].path, '/api/v1/projects/p/show-rules/remove');
     assert.match(out.note, /next bible import/);
+  });
+
+  // ezquill #450: an episode's wardrobe is a rule on the episode.
+  test('add_rule writes to the episode when named, and refuses an entity and an episode at once', async () => {
+    const sent = stub({ 'POST /rules': { rules: [] } });
+    await run('manage_production', {
+      projectId: 'p', action: 'add_rule', episodeId: 'ep5', rule: { block: 'WARDROBE', text: 'AI Slop wears the grey robe.' },
+    });
+    assert.equal(sent[0].path, '/api/v1/projects/p/nodes/ep5/rules');
+    await assert.rejects(
+      run('manage_production', { projectId: 'p', action: 'add_rule', episodeId: 'e', entityId: 's', rule: { block: 'X', text: 'y' } }),
+      /not both/
+    );
+  });
+
+  // ezquill #450: the snapshot is read from the rule, never typed by the agent.
+  test('override_rule snapshots the rule it names and sends the replacement', async () => {
+    const sent = stub({
+      'GET /entities/sal': { id: 'sal', name: 'Sal', metadata: { bible: { rules: [{ block: 'ANATOMY', text: 'Exactly two hooves.' }] } } },
+      'POST /shot/overrides': (body) => ({ overrides: [body] }),
+    });
+    const out = await run('manage_production', {
+      projectId: 'p', action: 'override_rule', nodeId: 's6', entityId: 'sal',
+      rule: { block: 'anatomy' }, reason: 'the extra-arm gag', replacement: 'a third arm grows from his side',
+    });
+    const req = sent.find((r) => r.path.endsWith('/shot/overrides'));
+    assert.equal(req.path, '/api/v1/projects/p/nodes/s6/shot/overrides');
+    assert.deepEqual(req.body, {
+      entityId: 'sal', block: 'ANATOMY', textAtOverride: 'Exactly two hooves.',
+      reason: 'the extra-arm gag', replacement: 'a third arm grows from his side',
+    });
+    assert.equal(out.note, undefined);
+  });
+
+  test('override_rule asks which rule when the block holds several, and lists them when none match', async () => {
+    stub({ 'GET /projects/p': { metadata: { showBible: { rules: [{ block: 'AUDIO', text: 'no music' }, { block: 'AUDIO', text: 'no SFX' }] } } } });
+    await assert.rejects(
+      run('manage_production', { projectId: 'p', action: 'override_rule', nodeId: 's', rule: { block: 'AUDIO' }, reason: 'r' }),
+      /2 AUDIO rules; pass rule.text/
+    );
+    await assert.rejects(
+      run('manage_production', { projectId: 'p', action: 'override_rule', nodeId: 's', rule: { block: 'EYES' }, reason: 'r' }),
+      /no EYES rule/
+    );
+  });
+
+  test('clear_override removes by block and owner', async () => {
+    const sent = stub({ 'POST /shot/overrides/remove': { removed: 1, overrides: [] } });
+    const out = await run('manage_production', {
+      projectId: 'p', action: 'clear_override', nodeId: 's6', entityId: 'sal', rule: { block: 'ANATOMY' },
+    });
+    assert.deepEqual(sent[0].body, { entityId: 'sal', block: 'ANATOMY' });
+    assert.equal(out.removed, 1);
+  });
+
+  // ezquill #446: a backfilled pointer string can be put right in place.
+  test('update_take passes a prompt retraction through', async () => {
+    const sent = stub({ 'PATCH /takes/v1': {} });
+    await run('manage_production', {
+      projectId: 'p', action: 'update_take', versionId: 'v1', patch: { promptRef: { tool: 'higgsfield', jobId: 'job-9' } },
+    });
+    assert.deepEqual(sent[0].body, { promptRef: { tool: 'higgsfield', jobId: 'job-9' } });
   });
 
   test('manage_entity refuses rules inside production, where nothing reads them', async () => {
