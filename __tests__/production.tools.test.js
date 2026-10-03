@@ -107,8 +107,9 @@ describe('manage_production', () => {
       projectId: 'p', action: 'record_cut', nodeId: 'ep1',
       data: { trims: [{ shotNodeId: 's1', takeId: 'v9', inSeconds: 0, outSeconds: 4.2 }] },
     });
-    assert.deepEqual(sent[0].body.kind, 'cut');
-    assert.equal(sent[0].body.nodeId, 'ep1');
+    const post = sent.find((r) => r.method === 'POST');
+    assert.deepEqual(post.body.kind, 'cut');
+    assert.equal(post.body.nodeId, 'ep1');
   });
 
   test('set_status sends null to stop tracking', async () => {
@@ -362,6 +363,39 @@ describe('shot fields, the house template and rules, from an agent (ezquill #431
       run('manage_production', { projectId: 'p', action: 'add_rule', rule: { block: 'EYES' } }),
       /needs rule.text/
     );
+  });
+
+  // ezquill #451: shot 5's trim could not be added to Ep. 5's cut — a second
+  // POST is refused (one live cut per episode) and nothing gave the cut's id.
+  test('record_cut extends the cut already there, keeping the other shots\' trims', async () => {
+    const stored = {
+      trims: [{ shotNodeId: 's4', takeId: 'v4', inSeconds: 0, outSeconds: 6 }, { shotNodeId: 's5', takeId: 'old', inSeconds: 0, outSeconds: 9 }],
+      publishes: [],
+      notes: 'kept',
+    };
+    const sent = stub({
+      'GET /production-records': { records: [{ id: 'cut-1', kind: 'cut', nodeId: 'ep5', data: stored }] },
+      'PATCH /production-records/cut-1': (body) => ({ id: 'cut-1', kind: 'cut', nodeId: 'ep5', data: body.data }),
+    });
+    const out = await run('manage_production', {
+      projectId: 'p', action: 'record_cut', nodeId: 'ep5',
+      data: { trims: [{ shotNodeId: 's5', takeId: 'v52', inSeconds: 0, outSeconds: 10 }] },
+    });
+    assert.equal(sent[0].query.get('kind'), 'cut');
+    assert.ok(!sent.some((r) => r.method === 'POST'), 'no second cut');
+    assert.equal(out.merged, true);
+    assert.deepEqual(out.trims.map((t) => [t.shotNodeId, t.takeId]), [['s4', 'v4'], ['s5', 'v52']]);
+    assert.equal(sent.at(-1).body.data.notes, 'kept');
+  });
+
+  test('record_cut creates the cut when the episode has none', async () => {
+    const sent = stub({
+      'GET /production-records': { records: [] },
+      'POST /production-records': (body) => ({ id: 'cut-9', kind: body.kind, nodeId: body.nodeId }),
+    });
+    const out = await run('manage_production', { projectId: 'p', action: 'record_cut', nodeId: 'ep5', data: { trims: [], publishes: [] } });
+    assert.deepEqual(out.recorded, { id: 'cut-9', kind: 'cut', nodeId: 'ep5' });
+    assert.equal(sent.at(-1).method, 'POST');
   });
 
   test('clear_override removes by block and owner', async () => {
