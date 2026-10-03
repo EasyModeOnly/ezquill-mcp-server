@@ -109,13 +109,20 @@ const templateSchema = closed(
 const ruleSchema = closed(
   {
     block: { type: 'string', description: 'The block it belongs in: EYES, EARS, ANATOMY, WARDROBE, PROPS, CAMERA, AUDIO…' },
-    text: { type: 'string' },
+    text: {
+      type: 'string',
+      description: 'add_rule / remove_rule: required. override_rule / clear_override: only to say which rule when the block holds several.',
+    },
     incident: {
       type: 'string',
       description: 'add_rule: what went wrong that this rule prevents — the take, what it cost. A rule nobody can justify is the first one cut.',
     },
   },
-  { required: ['block', 'text'] }
+  // Only `block` is required at the schema: override_rule and clear_override
+  // name a rule by block alone when its owner has one there, and a client that
+  // validates against `required: ['block', 'text']` refused exactly those calls
+  // before they reached the handler. add_rule / remove_rule check text below.
+  { required: ['block'] }
 );
 
 // The take's shape, declared field by field (ezquill #433). It mirrors
@@ -550,6 +557,9 @@ export const tools = [
         case 'add_rule':
         case 'remove_rule': {
           need('rule');
+          if (!args.rule.text?.trim()) {
+            throw new ToolError(Code.REQUEST_FAILED, `${action} needs rule.text: the rule itself.`);
+          }
           if (args.entityId && args.episodeId) {
             throw new ToolError(Code.REQUEST_FAILED, `${action}: a rule is on an entity OR an episode, not both.`);
           }
