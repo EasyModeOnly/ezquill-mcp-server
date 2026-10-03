@@ -1,5 +1,5 @@
 {
-  "version": "0.12.2",
+  "version": "0.13.0",
   "tools": {
     "authenticate": {
       "params": [
@@ -195,6 +195,7 @@
         "recordId",
         "replacement",
         "rule",
+        "settings",
         "shot",
         "status",
         "take",
@@ -213,6 +214,7 @@
         "remove_rule",
         "set_prompt_template",
         "set_shot",
+        "set_show_settings",
         "set_status",
         "update_record",
         "update_take"
