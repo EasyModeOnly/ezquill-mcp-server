@@ -352,6 +352,18 @@ describe('shot fields, the house template and rules, from an agent (ezquill #431
     );
   });
 
+  // A validating client checks `required` before the handler runs: with text
+  // required there, override_rule by block alone never reached the server.
+  test('the rule schema lets override_rule name a rule by block alone, and add_rule still needs text', async () => {
+    const rule = tool('manage_production').inputSchema.properties.rule;
+    assert.deepEqual(rule.required, ['block']);
+    stub({});
+    await assert.rejects(
+      run('manage_production', { projectId: 'p', action: 'add_rule', rule: { block: 'EYES' } }),
+      /needs rule.text/
+    );
+  });
+
   test('clear_override removes by block and owner', async () => {
     const sent = stub({ 'POST /shot/overrides/remove': { removed: 1, overrides: [] } });
     const out = await run('manage_production', {
