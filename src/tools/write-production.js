@@ -26,7 +26,7 @@ const ACTIONS = [
   'record_take', 'update_take',
   'record_still', 'record_cue', 'record_cut', 'update_record', 'delete_record',
   'set_status', 'set_shot', 'set_prompt_template', 'add_rule', 'remove_rule',
-  'override_rule', 'clear_override',
+  'override_rule', 'clear_override', 'set_show_settings',
 ];
 
 // A shot's production fields (ezquill #431): what the compiler reads for its
@@ -104,6 +104,24 @@ const templateSchema = closed(
       'set_prompt_template: the WHOLE template — it replaces what is there. Read get_production scope "show" ' +
       'promptTemplate first and send it back with your change. The template edits and toggles; block order is the compiler\'s.',
   }
+);
+
+// The show's generation settings (ezquill #452), which only a show-bible import
+// could write. Mirrors projects.ShowSettingsPatch: only the keys to change, and
+// null returns one to its default.
+const showSettingsSchema = closed(
+  {
+    defaultClipSeconds: nullable({ type: 'number', description: 'A silent shot\'s length when it states none. Unset: the 4s floor.' }),
+    dialogueSeconds: nullable({ type: 'number', description: 'The least a speaking shot gets, however short its line. Unset: fitted to the line.' }),
+    maxClipSeconds: nullable({ type: 'number', description: 'The model\'s ceiling; longer requests are clamped and warned about.' }),
+    wordsPerSecond: nullable({ type: 'number', description: 'Speaking rate a line is fitted at. Unset: 2.5.' }),
+    aspectRatio: { type: ['string', 'null'], enum: ['9:16', '16:9', '1:1', null] },
+    renderModel: nullable({ type: 'string', description: 'The model a compile names in params.model, e.g. seedance_2_0.' }),
+    resolution: nullable({ type: 'string', description: '"720p", "1080p": a generation parameter, never prompt text.' }),
+    creditsPerSecond: nullable({ type: 'number', description: 'Price, for params.estimatedCredits. Unset: no estimate rather than a guess.' }),
+    declinedPresetId: nullable({ type: 'string' }),
+  },
+  { description: 'set_show_settings: only the settings to change; null returns one to its default. Read get_production scope "show" settings first.' }
 );
 
 const ruleSchema = closed(
@@ -315,9 +333,11 @@ export const tools = [
       'status (planned, prompting, generating, review, locked, in_cut, published, blocked). ' +
       'set_shot: a shot\'s framing, camera, left-to-right order, length, prompt action or start plan — ' +
       'what compile_prompt reads. set_prompt_template: the show\'s house template (style line, standing ' +
-      'blocks). add_rule / remove_rule: a continuity rule on the show, on one entity with entityId ' +
-      '(Sal\'s "exactly two ears"), or on one episode with episodeId (this episode\'s wardrobe). NO FADES is ' +
-      'a template block. override_rule: one shot (nodeId) deliberately breaks a rule — name it by rule.block ' +
+      'blocks). set_show_settings: clip lengths, speaking rate, aspect ratio, model, resolution, price. ' +
+      'add_rule / remove_rule: a continuity rule on the show, on one entity with entityId ' +
+      '(Sal\'s "exactly two ears"), on one episode with episodeId (its look or weather), or on one entity in ' +
+      'one episode with both (Sal\'s robe in this episode only — compiled under Sal\'s name, only when he is in ' +
+      'frame). NO FADES is a template block. override_rule: one shot (nodeId) deliberately breaks a rule — name it by rule.block ' +
       '(+ rule.text when its owner has several in that block) and entityId / episodeId as for add_rule; give ' +
       'a reason, and a replacement to have the prompt say what holds instead. clear_override undoes it.',
     inputSchema: {
@@ -360,10 +380,11 @@ export const tools = [
         note: { type: 'string', description: 'set_status: why — required in spirit for blocked.' },
         shot: shotSchema,
         template: templateSchema,
+        settings: showSettingsSchema,
         rule: ruleSchema,
         entityId: {
           type: 'string',
-          description: 'add_rule / remove_rule / override_rule / clear_override: the entity the rule is about. Omit for a show or episode rule.',
+          description: 'add_rule / remove_rule / override_rule / clear_override: the entity the rule is about. With episodeId too: that entity, in that episode only.',
         },
         episodeId: {
           type: 'string',
@@ -415,6 +436,7 @@ export const tools = [
             // take's own shape, so the chain check can read it later.
             ...(compiled.params?.startImage ? { startImage: compiled.params.startImage } : {}),
             modelRequested: compiled.params?.model,
+            ...(compiled.params?.resolution ? { resolution: compiled.params.resolution } : {}),
             aspectRatio: compiled.params?.aspectRatio,
             durationSeconds: compiled.params?.durationSeconds,
             generateAudio: compiled.params?.generateAudio,
@@ -538,6 +560,14 @@ export const tools = [
           return { nodeId: node.id, shot: node.metadata?.shot ?? {} };
         }
 
+        case 'set_show_settings': {
+          need('settings');
+          // Merged by the SERVER into showBible, key by key (#452): the
+          // template, the rules and the bible import's own keys survive.
+          const out = await call(`/projects/${projectId}/show-settings`, { method: 'PATCH', body: args.settings });
+          return { settings: out.settings };
+        }
+
         case 'set_prompt_template': {
           need('template');
           const stored = await call(`/projects/${projectId}/prompt-template`, { method: 'PUT', body: args.template });
@@ -588,23 +618,24 @@ export const tools = [
           if (!args.rule.text?.trim()) {
             throw new ToolError(Code.REQUEST_FAILED, `${action} needs rule.text: the rule itself.`);
           }
-          if (args.entityId && args.episodeId) {
-            throw new ToolError(Code.REQUEST_FAILED, `${action}: a rule is on an entity OR an episode, not both.`);
-          }
-          const base = args.entityId
-            ? `/projects/${projectId}/entities/${args.entityId}/rules`
-            : args.episodeId
-              ? `/projects/${projectId}/nodes/${args.episodeId}/rules`
+          // An episode's rule may be ABOUT an entity (#455): it lives on the
+          // episode and carries the entity's id, so it is compiled under that
+          // name and only into shots the entity is in.
+          const about = args.episodeId && args.entityId ? { entityId: args.entityId } : {};
+          const base = args.episodeId
+            ? `/projects/${projectId}/nodes/${args.episodeId}/rules`
+            : args.entityId
+              ? `/projects/${projectId}/entities/${args.entityId}/rules`
               : `/projects/${projectId}/show-rules`;
           if (action === 'add_rule') {
             // origin 'agent' is what keeps it across a bible re-import: the
             // import replaces only the rules it wrote itself.
-            const out = await call(base, { method: 'POST', body: { ...args.rule, origin: 'agent' } });
+            const out = await call(base, { method: 'POST', body: { ...args.rule, ...about, origin: 'agent' } });
             return { rules: out.rules };
           }
           const out = await call(`${base}/remove`, {
             method: 'POST',
-            body: { block: args.rule.block, text: args.rule.text },
+            body: { block: args.rule.block, text: args.rule.text, ...about },
           });
           return {
             removed: out.removed,
@@ -656,14 +687,16 @@ async function findRule(projectId, { entityId, episodeId }, wanted) {
   const block = String(wanted.block ?? '').trim().toUpperCase();
   let rules;
   let owner;
-  if (entityId) {
+  if (episodeId) {
+    // The episode's rules: about nobody, or — with entityId — about that entity.
+    const episode = await call(`/projects/${projectId}/nodes/${episodeId}`);
+    const all = episode?.metadata?.bible?.rules;
+    rules = (Array.isArray(all) ? all : []).filter((r) => (r?.entityId || undefined) === (entityId || undefined));
+    owner = `${episode?.title ?? 'that episode'}${entityId ? ` (about ${entityId})` : ''}`;
+  } else if (entityId) {
     const entity = await call(`/projects/${projectId}/entities/${entityId}`);
     rules = entity?.metadata?.bible?.rules;
     owner = entity?.name ?? entityId;
-  } else if (episodeId) {
-    const episode = await call(`/projects/${projectId}/nodes/${episodeId}`);
-    rules = episode?.metadata?.bible?.rules;
-    owner = episode?.title ?? 'that episode';
   } else {
     const project = await call(`/projects/${projectId}`);
     rules = project?.metadata?.showBible?.rules;

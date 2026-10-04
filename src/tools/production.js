@@ -18,7 +18,7 @@ export const tools = [
       'leads with `stage` and `progress` — `gate` is only its furthest-behind shot. ' +
       'scope "episode" (nodeId = the episode): its shots in status columns with takes, credits ' +
       'and warnings, its cut, and the rules that hold only in it. scope "shot" (nodeId = the shot): the locked take and its ' +
-      'files, rejected takes with reasons, the start-frame chain, stills and sound cues, plus `fields` — ' +
+      'files and prompt record (prompt, wasEdited, promptSource, promptRef), rejected takes with reasons, the start-frame chain, stills and sound cues, plus `fields` — ' +
       'the framing, camera, left-to-right order, length, prompt action and rule overrides the compiler reads — and ' +
       '`startPlan`. scope "show": the house prompt template, the show settings, the show-wide rules, and ' +
       'every entity kind with the profile and production fields it takes. Read it before changing any of them.',
@@ -48,7 +48,10 @@ export const tools = [
       'prompt template — the prompt ezQuill shows for that shot. Returns `prompt` (what to ' +
       'submit: the writer\'s hand edit when there is one), `params` (model, duration, aspect ' +
       'ratio, whether to generate audio), `diagnostics` (blocking ones mean do not submit), ' +
-      '`overridden` (rules this shot deliberately drops), and `assets`. Submit exactly `prompt`, then record the take with manage_production record_take.',
+      '`overridden` (rules this shot deliberately drops), and `assets`. The compiler never edits the script: ' +
+      'a shot with no prompt action sends its prose as written, and script-furniture-in-shot names any ' +
+      'timecode, heading or transition in it with a `suggestion` — the prose without them — to set as the ' +
+      'action with manage_production set_shot if it reads right. Submit exactly `prompt`, then record the take with manage_production record_take.',
     inputSchema: {
       type: 'object',
       properties: {

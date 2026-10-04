@@ -310,16 +310,64 @@ describe('shot fields, the house template and rules, from an agent (ezquill #431
   });
 
   // ezquill #450: an episode's wardrobe is a rule on the episode.
-  test('add_rule writes to the episode when named, and refuses an entity and an episode at once', async () => {
+  test('add_rule writes to the episode when named', async () => {
     const sent = stub({ 'POST /rules': { rules: [] } });
     await run('manage_production', {
       projectId: 'p', action: 'add_rule', episodeId: 'ep5', rule: { block: 'WARDROBE', text: 'AI Slop wears the grey robe.' },
     });
     assert.equal(sent[0].path, '/api/v1/projects/p/nodes/ep5/rules');
-    await assert.rejects(
-      run('manage_production', { projectId: 'p', action: 'add_rule', episodeId: 'e', entityId: 's', rule: { block: 'X', text: 'y' } }),
-      /not both/
-    );
+    assert.equal(sent[0].body.entityId, undefined);
+  });
+
+  // ezquill #455: Sal's robe in this episode only is an episode rule about Sal.
+  test('add_rule with an entity AND an episode writes to the episode, naming the entity', async () => {
+    const sent = stub({ 'POST /rules': { rules: [] }, 'POST /rules/remove': { removed: true, rules: [] } });
+    await run('manage_production', {
+      projectId: 'p', action: 'add_rule', episodeId: 'ep5', entityId: 'sal', rule: { block: 'WARDROBE', text: 'wears the grey robe.' },
+    });
+    assert.equal(sent[0].path, '/api/v1/projects/p/nodes/ep5/rules');
+    assert.equal(sent[0].body.entityId, 'sal');
+    await run('manage_production', {
+      projectId: 'p', action: 'remove_rule', episodeId: 'ep5', entityId: 'sal', rule: { block: 'WARDROBE', text: 'wears the grey robe.' },
+    });
+    assert.deepEqual(sent[1].body, { block: 'WARDROBE', text: 'wears the grey robe.', entityId: 'sal' });
+  });
+
+  test('override_rule finds an episode rule about an entity, and not the episode-wide one', async () => {
+    const sent = stub({
+      'GET /nodes/ep5': {
+        title: 'Ep. 5',
+        metadata: { bible: { rules: [{ block: 'WARDROBE', text: 'everyone in yellow' }, { block: 'WARDROBE', text: 'the grey robe', entityId: 'sal' }] } },
+      },
+      'POST /shot/overrides': (body) => ({ overrides: [body] }),
+    });
+    await run('manage_production', {
+      projectId: 'p', action: 'override_rule', nodeId: 's6', episodeId: 'ep5', entityId: 'sal',
+      rule: { block: 'WARDROBE' }, reason: 'robe off for the gag', replacement: 'Sal is in a towel',
+    });
+    assert.deepEqual(sent.at(-1).body, {
+      entityId: 'sal', block: 'WARDROBE', textAtOverride: 'the grey robe', reason: 'robe off for the gag', replacement: 'Sal is in a towel',
+    });
+  });
+
+  // ezquill #452.
+  test('record_take carries the show resolution from the compile', async () => {
+    const sent = stub({
+      'POST /api/video/compile': { ...compiled, params: { ...compiled.params, resolution: '1080p' } },
+      'POST /versions': (body) => ({ id: 'v1', versionNumber: 1, ...body }),
+    });
+    await run('manage_production', { projectId: 'p', action: 'record_take', nodeId: 's1', take: { jobId: 'j' } });
+    assert.equal(sent.find((r) => r.path.endsWith('/versions')).body.content.take.resolution, '1080p');
+  });
+
+  test('set_show_settings patches the show settings', async () => {
+    const sent = stub({ 'PATCH /show-settings': { settings: { dialogueSeconds: 8 } } });
+    const out = await run('manage_production', {
+      projectId: 'p', action: 'set_show_settings', settings: { dialogueSeconds: 8, maxClipSeconds: null },
+    });
+    assert.equal(sent[0].path, '/api/v1/projects/p/show-settings');
+    assert.deepEqual(sent[0].body, { dialogueSeconds: 8, maxClipSeconds: null });
+    assert.deepEqual(out.settings, { dialogueSeconds: 8 });
   });
 
   // ezquill #450: the snapshot is read from the rule, never typed by the agent.
