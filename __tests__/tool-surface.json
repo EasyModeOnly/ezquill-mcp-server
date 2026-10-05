@@ -1,5 +1,5 @@
 {
-  "version": "0.13.0",
+  "version": "0.14.0",
   "tools": {
     "authenticate": {
       "params": [
@@ -191,12 +191,14 @@
         "note",
         "patch",
         "projectId",
+        "quote",
         "reason",
         "recordId",
         "replacement",
         "rule",
         "settings",
         "shot",
+        "speakerId",
         "status",
         "take",
         "template",
@@ -206,6 +208,7 @@
         "add_rule",
         "clear_override",
         "delete_record",
+        "mark_dialogue",
         "override_rule",
         "record_cue",
         "record_cut",

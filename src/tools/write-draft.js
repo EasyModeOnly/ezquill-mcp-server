@@ -33,6 +33,7 @@ import { call, callPaged } from '../lib/api.js';
 import { ToolError, Code } from '../lib/errors.js';
 import { assembleProse, isBlock } from '../lib/nodes.js';
 import { refuseUnmigrated, sectionBlocks } from '../lib/sections.js';
+import { anchorAt, occurrences, textOf } from '../lib/prose.js';
 
 /** One block is one top-level paragraph. */
 const paragraph = (text) => ({
@@ -190,12 +191,24 @@ async function propose({ projectId, nodeId, quote, replacement, note }) {
       'The replacement is identical to the quoted text — there is nothing to propose.'
     );
   }
+  // A suggestion replaces TEXT. `> ` is markdown for a quote block, and as a
+  // suggestion it would land as a literal ">" mid-paragraph: the line would
+  // still not be dialogue, and the prompt would gain stray characters
+  // (Saltpig shorts, shot 6). Changing a paragraph's kind is its own action.
+  if (/^\s*>/.test(replacement)) {
+    throw new ToolError(
+      Code.REQUEST_FAILED,
+      'A suggestion replaces text and cannot make a quote block — a leading ">" would be inserted literally. ' +
+        'To mark a shot\'s line as dialogue, use manage_production action "mark_dialogue".'
+    );
+  }
 
   const [node, children] = await Promise.all([
     call(`/projects/${projectId}/nodes/${nodeId}`),
     callPaged(`/projects/${projectId}/nodes`, 'nodes', { parentId: nodeId, limit: 10000 }),
   ]);
-  const prose = assembleProse(node, children.filter(isBlock));
+  const blocks = children.filter(isBlock);
+  const prose = assembleProse(node, blocks);
 
   const first = prose.indexOf(quote);
   if (first === -1) {
@@ -212,17 +225,39 @@ async function propose({ projectId, nodeId, quote, replacement, note }) {
     );
   }
 
-  const comment = await call(`/projects/${projectId}/nodes/${nodeId}/comments`, {
+  // Since prose moved into paragraph blocks, a comment belongs to the BLOCK
+  // its words are in, anchored in that block's own document — that is the
+  // node the Comments panel lists (ezquill #456). Posted on the scene, the
+  // suggestion existed and nobody could see it. A scene whose prose is still
+  // its own document keeps the old shape.
+  let target = nodeId;
+  let anchor = { from: first, to: first + quote.length, text: quote };
+  if (blocks.some((b) => b.hasProse)) {
+    const textIn = (b) => (b.content?.document ? textOf(b.content.document) : (b.content?.plainText ?? ''));
+    const holder = blocks.find((b) => occurrences(textIn(b), quote) === 1);
+    if (!holder) {
+      throw new ToolError(
+        Code.REQUEST_FAILED,
+        'Those words run across more than one paragraph. Quote a passage inside a single paragraph, ' +
+          'and propose a change to each paragraph separately.'
+      );
+    }
+    const doc = holder.content.document;
+    target = holder.id;
+    // Without the document (a listing that withheld it), a block is one
+    // paragraph of text, whose first character is position 1.
+    const at = textIn(holder).indexOf(quote);
+    anchor = doc ? anchorAt(doc, at, quote) : { from: at + 1, to: at + 1 + quote.length, text: quote };
+  }
+
+  const comment = await call(`/projects/${projectId}/nodes/${target}/comments`, {
     method: 'POST',
     body: {
       body: note?.trim() || 'Suggested edit',
-      // `from`/`to` are offsets into the ASSEMBLED PLAIN TEXT, which is not the
-      // same coordinate space as the editor's document positions. `text` is the
-      // authoritative half: it is what stood there, and it is how the editor
-      // re-finds the passage when positions have drifted — which they do as
-      // soon as anybody types above it. Sending an approximate range with an
-      // exact quote is the same bargain every comment in this app already makes.
-      anchor: { from: first, to: first + quote.length, text: quote },
+      // `text` is the authoritative half: it is what stood there, and the
+      // editor shows the comment as detached rather than guessing if the
+      // positions stop matching it.
+      anchor,
       replacement,
     },
   });

@@ -17,8 +17,11 @@
  *   otherwise, so an agent's take goes stale on a redesign exactly as the
  *   app's does.
  */
+import { randomUUID } from 'node:crypto';
 import { call } from '../lib/api.js';
 import { ToolError, Code } from '../lib/errors.js';
+import { sectionBlocks } from '../lib/sections.js';
+import { occurrences, textOf } from '../lib/prose.js';
 
 const closed = (properties, extra = {}) => ({ type: 'object', properties, additionalProperties: false, ...extra });
 
@@ -26,7 +29,7 @@ const ACTIONS = [
   'record_take', 'update_take',
   'record_still', 'record_cue', 'record_cut', 'update_record', 'delete_record',
   'set_status', 'set_shot', 'set_prompt_template', 'add_rule', 'remove_rule',
-  'override_rule', 'clear_override', 'set_show_settings',
+  'override_rule', 'clear_override', 'set_show_settings', 'mark_dialogue',
 ];
 
 // A shot's production fields (ezquill #431): what the compiler reads for its
@@ -339,7 +342,11 @@ export const tools = [
       'one episode with both (Sal\'s robe in this episode only — compiled under Sal\'s name, only when he is in ' +
       'frame). NO FADES is a template block. override_rule: one shot (nodeId) deliberately breaks a rule — name it by rule.block ' +
       '(+ rule.text when its owner has several in that block) and entityId / episodeId as for add_rule; give ' +
-      'a reason, and a replacement to have the prompt say what holds instead. clear_override undoes it.',
+      'a reason, and a replacement to have the prompt say what holds instead. clear_override undoes it. ' +
+      'mark_dialogue: make a shot\'s line its DIALOGUE — quote the line exactly as it stands (e.g. ' +
+      'SAL: "And slop needs love too."); it becomes its own quote-block paragraph, its NAME: label and ' +
+      'quotation marks dropped (the compiler writes "SAL says: …"), and speakerId links who says it. ' +
+      'The words themselves are unchanged. This is how to clear inline-dialogue-not-marked.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -391,6 +398,11 @@ export const tools = [
           description: 'add_rule / remove_rule / override_rule / clear_override: the episode a rule holds in, for one that is not show-wide.',
         },
         reason: { type: 'string', description: 'override_rule: why this shot is the exception. Required.' },
+        quote: {
+          type: 'string',
+          description: 'mark_dialogue: the line exactly as it stands in the shot, inside one paragraph. Must occur once.',
+        },
+        speakerId: { type: 'string', description: 'mark_dialogue: the character who says it, linked as the shot\'s speaker.' },
         replacement: {
           type: 'string',
           description: 'override_rule: what holds instead, said to the model in an OVERRIDE block ("Sal has a third arm"). Omit to only drop the rule.',
@@ -560,6 +572,11 @@ export const tools = [
           return { nodeId: node.id, shot: node.metadata?.shot ?? {} };
         }
 
+        case 'mark_dialogue': {
+          need('nodeId', 'quote');
+          return markDialogue(projectId, args.nodeId, args.quote, args.speakerId);
+        }
+
         case 'set_show_settings': {
           need('settings');
           // Merged by the SERVER into showBible, key by key (#452): the
@@ -653,6 +670,100 @@ export const tools = [
     },
   },
 ];
+
+/**
+ * Make a line of a shot its dialogue (ezquill #458).
+ *
+ * The compiler reads a shot's line only from a QUOTE-BLOCK paragraph
+ * (readShotText), so a line written inline — `SAL: "…"` in the middle of the
+ * blocking — compiles silent, and the diagnostic saying so asked an agent for
+ * something no tool could do. A suggested edit cannot either: it replaces text,
+ * and the Saltpig agent's `> SAL: "…"` would have landed as a literal ">".
+ *
+ * This is a write, not a suggestion, and it is limited to what makes that
+ * safe: the WORDS are kept as they are; what changes is where they sit (their
+ * own paragraph, a quote block) and two pieces of notation that become
+ * structure — the `NAME:` label, which the speaker link replaces, and the
+ * enclosing quotation marks, which the compiler adds itself ("SAL says: \"…\"").
+ * The paragraph it came from is guarded by its content version, so a writer's
+ * edit made meanwhile refuses this rather than being overwritten.
+ */
+async function markDialogue(projectId, nodeId, quote, speakerId) {
+  const blocks = await sectionBlocks(projectId, nodeId);
+  const holders = blocks.filter((b) => occurrences(textOf(b.content?.document), quote) > 0);
+  const total = holders.reduce((n, b) => n + occurrences(textOf(b.content?.document), quote), 0);
+  if (total === 0) {
+    throw new ToolError(
+      Code.REQUEST_FAILED,
+      'That line is not in this shot, inside a single paragraph. Quote it exactly as read_scene shows it.'
+    );
+  }
+  if (total > 1) {
+    throw new ToolError(Code.REQUEST_FAILED, 'That text occurs more than once in this shot. Quote the whole line.');
+  }
+  const block = holders[0];
+  const doc = block.content.document;
+  const top = doc?.content ?? [];
+  if (top.length !== 1 || top[0].type !== 'paragraph') {
+    throw new ToolError(
+      Code.REQUEST_FAILED,
+      top[0]?.type === 'blockquote'
+        ? 'That line is already a quote block: it is the shot\'s dialogue.'
+        : 'That paragraph is not plain prose (a list, a heading…). Change it in ezQuill.'
+    );
+  }
+
+  const text = textOf(doc);
+  const start = text.indexOf(quote);
+  const before = text.slice(0, start).trim();
+  const after = text.slice(start + quote.length).trim();
+  const spoken = quote
+    .trim()
+    .replace(/^[A-Z][A-Z0-9 .'’-]*:\s*/, '')
+    .replace(/^["“](.*)["”]$/s, '$1')
+    .trim();
+  if (!spoken) throw new ToolError(Code.REQUEST_FAILED, 'Nothing is left to say once the label is taken off.');
+
+  const para = (t) => ({
+    document: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: t }] }] },
+    plainText: t,
+  });
+  const line = {
+    document: {
+      type: 'doc',
+      content: [{ type: 'blockquote', content: [{ type: 'paragraph', content: [{ type: 'text', text: spoken }] }] }],
+    },
+    plainText: spoken,
+  };
+  const guard = typeof block.contentVersion === 'number' ? { ifContentVersion: block.contentVersion } : {};
+
+  // The original row keeps the first piece, so its comments and history stay
+  // with the words they were about; the rest are new paragraphs after it.
+  const pieces = [...(before ? [para(before)] : []), line, ...(after ? [para(after)] : [])];
+  const replaced = pieces.map((content, i) => ({ id: i === 0 ? block.id : randomUUID(), content, ...(i === 0 ? guard : {}) }));
+  const save = blocks.flatMap((b) => (b.id === block.id ? replaced : [{ id: b.id }]));
+
+  const result = await call(`/projects/${projectId}/nodes/${nodeId}/blocks`, { method: 'PUT', body: { blocks: save } });
+  const refused = result?.refused ?? [];
+  if (refused.length > 0) {
+    return {
+      marked: false,
+      warning: 'The paragraph changed in ezQuill before this landed, so nothing was moved. Re-read the shot and try again.',
+    };
+  }
+  if (speakerId) {
+    // The endpoint that ADDS a link: the shot's other roles are untouched.
+    await call(`/projects/${projectId}/nodes/${nodeId}/entities/${speakerId}`, { method: 'PUT', body: { role: 'speaker' } });
+  }
+  return {
+    marked: true,
+    dialogue: spoken,
+    paragraphs: pieces.length,
+    ...(speakerId
+      ? {}
+      : { note: 'No speakerId given: link who says it (manage_cast role speaker), or the line is dropped from the prompt.' }),
+  };
+}
 
 /**
  * An episode's cut with more laid over it. Lists are merged by their key — a

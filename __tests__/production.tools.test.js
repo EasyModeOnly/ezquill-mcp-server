@@ -446,6 +446,42 @@ describe('shot fields, the house template and rules, from an agent (ezquill #431
     assert.equal(sent.at(-1).method, 'POST');
   });
 
+  // ezquill #458: the inline line diagnostic asked for a quote block that no
+  // tool could make.
+  test('mark_dialogue splits the line into its own quote block, drops the label and quotes, links the speaker', async () => {
+    const doc = (text) => ({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] });
+    const text = 'He stops. SAL: "And slop needs love too." Chris crosses behind.';
+    const sent = stub({
+      'GET /nodes': { nodes: [
+        { id: 'b0', nodeType: 'block', order: 0, hasProse: true, content: { plainText: 'Before.', document: doc('Before.') } },
+        { id: 'b1', nodeType: 'block', order: 1, hasProse: true, contentVersion: 3, content: { plainText: text, document: doc(text) } },
+      ], hasMore: false },
+      'PUT /blocks': (body) => ({ blocks: body.blocks, refused: [] }),
+      'PUT /entities/sal': { role: 'speaker' },
+    });
+    const out = await run('manage_production', {
+      projectId: 'p', action: 'mark_dialogue', nodeId: 's6', quote: 'SAL: "And slop needs love too."', speakerId: 'sal',
+    });
+    const put = sent.find((r) => r.method === 'PUT' && r.path.endsWith('/blocks'));
+    const [b0, kept, line, after] = put.body.blocks;
+    assert.deepEqual(b0, { id: 'b0' }, 'other paragraphs are sent back unchanged');
+    assert.equal(kept.id, 'b1');
+    assert.equal(kept.ifContentVersion, 3);
+    assert.equal(kept.content.plainText, 'He stops.');
+    assert.equal(line.content.document.content[0].type, 'blockquote');
+    assert.equal(line.content.plainText, 'And slop needs love too.');
+    assert.equal(after.content.plainText, 'Chris crosses behind.');
+    assert.ok(sent.some((r) => r.method === 'PUT' && r.path.endsWith('/nodes/s6/entities/sal') && r.body.role === 'speaker'));
+    assert.equal(out.marked, true);
+  });
+
+  test('mark_dialogue refuses a line already marked, and one that is not there', async () => {
+    const quoted = { type: 'doc', content: [{ type: 'blockquote', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Huh.' }] }] }] };
+    stub({ 'GET /nodes': { nodes: [{ id: 'b1', nodeType: 'block', order: 0, hasProse: true, content: { plainText: 'Huh.', document: quoted } }], hasMore: false } });
+    await assert.rejects(run('manage_production', { projectId: 'p', action: 'mark_dialogue', nodeId: 's', quote: 'Huh.' }), /already a quote block/);
+    await assert.rejects(run('manage_production', { projectId: 'p', action: 'mark_dialogue', nodeId: 's', quote: 'Nope.' }), /not in this shot/);
+  });
+
   test('clear_override removes by block and owner', async () => {
     const sent = stub({ 'POST /shot/overrides/remove': { removed: 1, overrides: [] } });
     const out = await run('manage_production', {
