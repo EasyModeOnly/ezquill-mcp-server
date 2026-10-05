@@ -217,6 +217,48 @@ describe('write_draft revise — proposes, never writes', () => {
     assert.ok(!sent.some((r) => r.method === 'PUT'), 'revise must not write prose');
   });
 
+  // ezquill #456: posted on the scene, a suggestion existed and the Comments
+  // panel — which lists the active PARAGRAPH's — never showed it.
+  test('posts on the paragraph block that holds the words, anchored inside it', async () => {
+    const doc = (text) => ({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] });
+    const sent = stub({
+      '/nodes/s': { id: 's', hasProse: false },
+      '/nodes': {
+        nodes: [
+          block('b1', { order: 1, hasProse: true, content: { plainText: 'First.', document: doc('First.') } }),
+          block('b2', { order: 2, hasProse: true, content: { plainText: 'He turns. SAL: "Huh."', document: doc('He turns. SAL: "Huh."') } }),
+        ],
+        hasMore: false,
+      },
+      'POST /comments': { id: 'c9' },
+    });
+    await run('write_draft', { projectId: 'p', nodeId: 's', action: 'revise', quote: 'SAL: "Huh."', replacement: 'SAL: "Hm."' });
+    const post = sent.find((r) => r.method === 'POST');
+    assert.equal(post.path, '/api/v1/projects/p/nodes/b2/comments');
+    // "He turns. " is 10 characters; the paragraph opens at 0, so its first character is 1.
+    assert.deepEqual(post.body.anchor, { from: 11, to: 22, text: 'SAL: "Huh."' });
+  });
+
+  test('refuses a quote that runs across paragraphs', async () => {
+    stub({
+      '/nodes/s': { id: 's', hasProse: false },
+      '/nodes': { nodes: [written('b1', 'One.', 1, 1), written('b2', 'Two.', 2, 1)], hasMore: false },
+    });
+    await assert.rejects(
+      () => run('write_draft', { projectId: 'p', nodeId: 's', action: 'revise', quote: 'One.\n\nTwo.', replacement: 'x' }),
+      /more than one paragraph/
+    );
+  });
+
+  // ezquill #458: `> ` would be inserted literally, mid-paragraph.
+  test('refuses to propose a markdown quote block, and points at mark_dialogue', async () => {
+    stub(scene);
+    await assert.rejects(
+      () => run('write_draft', { projectId: 'p', nodeId: 's', action: 'revise', quote: 'The tide went out.', replacement: '> The tide went out.' }),
+      /mark_dialogue/
+    );
+  });
+
   test('an EMPTY replacement is a valid proposal to cut the passage', async () => {
     // It is also falsy, which is exactly how this gets silently dropped.
     const sent = stub({ ...scene, 'POST /comments': { id: 'c2' } });
