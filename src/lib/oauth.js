@@ -15,6 +15,10 @@ import { createServer } from 'node:http';
 import { execFile } from 'node:child_process';
 import { once } from 'node:events';
 
+// A cycle (credentials.js imports refresh from here), and a safe one: neither
+// module uses the other's exports at import time, only inside functions.
+import { storeTokens } from './credentials.js';
+
 const DEFAULT_ISSUER = 'https://auth.ezquill.com/realms/ezquill';
 export const CLIENT_ID = process.env.EZQUILL_CLIENT_ID || 'ezquill-mcp';
 
@@ -39,9 +43,13 @@ function pkce() {
   return { verifier, challenge };
 }
 
+// Keyed by the issuer it came from, so a changed EZQUILL_ISSUER is not answered
+// with the previous issuer's endpoints.
 let discovered = null;
+let discoveredFrom = null;
 export async function endpoints() {
-  if (discovered) return discovered;
+  if (discovered && discoveredFrom === issuer()) return discovered;
+  discoveredFrom = null;
   const response = await fetch(`${issuer()}/.well-known/openid-configuration`);
   if (!response.ok) {
     throw new Error(`cannot reach the ezQuill sign-in service (${response.status})`);
@@ -52,6 +60,7 @@ export async function endpoints() {
     token: doc.token_endpoint,
     endSession: doc.end_session_endpoint,
   };
+  discoveredFrom = issuer();
   return discovered;
 }
 
@@ -165,6 +174,12 @@ function awaitCallback(server, { state, verifier, redirectUri }) {
 
       try {
         const tokens = await exchange({ code, verifier, redirectUri });
+        // KEPT, before the page says so. Without this the exchange succeeded,
+        // the tab said "Signed in", and the tokens were discarded with the
+        // promise that carried them: the next tool call found no credential
+        // and handed back a fresh sign-in link, for ever (ezquill #325). Every
+        // test stopped at the url, which is why none of them noticed.
+        await storeTokens(tokens);
         // The page is written AFTER the exchange, on purpose. Written before,
         // it can name nobody — and it would cheerfully say "signed in" after an
         // exchange that failed. This matters most in the case that looks like

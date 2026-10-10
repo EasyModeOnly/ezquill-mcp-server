@@ -2,7 +2,7 @@ import { test, describe, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer as createHttpServer } from 'node:http';
 import { once } from 'node:events';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -19,6 +19,9 @@ process.env.EZQUILL_NO_BROWSER = '1';
  * its url and stops, which is the behaviour under test.
  */
 const issuers = [];
+
+// Two tests below replace fetch; the real one is put back after each test.
+const realFetch = globalThis.fetch;
 
 async function fakeIssuer() {
   const server = createHttpServer((req, res) => {
@@ -53,6 +56,7 @@ afterEach(() => {
   // fails, which is the moment you least want to wait ninety seconds to find
   // out. Cleanup that only runs on success is not cleanup.
   while (issuers.length) issuers.pop().close();
+  globalThis.fetch = realFetch;
 
   // A pending flow is module state: left standing, the next test would be
   // handed the previous one's url by the "same url while pending" rule.
@@ -183,5 +187,55 @@ describe('the sign-in funnel', () => {
     const result = await callTool(server, 'authenticate');
     assert.equal(result.isError, true);
     assert.match(parse(result).message, /Unknown tool/);
+  });
+});
+
+describe('completing a sign-in', () => {
+  test('the tokens are KEPT, so the next call is signed in (ezquill #325)', async () => {
+    // Every other test here stops at the url. This one follows the browser
+    // back to the loopback callback, because that is where the flow lost its
+    // tokens: the tab said "Signed in" and the next call asked again.
+    const claims = Buffer.from(JSON.stringify({ email: 'writer@example.test' })).toString('base64url');
+    const accessToken = `h.${claims}.s`;
+    const server = createHttpServer(async (req, res) => {
+      if (req.url.startsWith('/.well-known/openid-configuration')) {
+        const base = `http://127.0.0.1:${server.address().port}`;
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ authorization_endpoint: `${base}/auth`, token_endpoint: `${base}/token` }));
+        return;
+      }
+      if (req.url === '/token' && req.method === 'POST') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ access_token: accessToken, refresh_token: 'r', expires_in: 300 }));
+        return;
+      }
+      res.writeHead(404).end();
+    });
+    server.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    issuers.push(server);
+
+    const dir = await mkdtemp(join(tmpdir(), 'ezquill-signin-'));
+    process.env.EZQUILL_ISSUER = `http://127.0.0.1:${server.address().port}`;
+    process.env.EZQUILL_TOKEN_PATH = join(dir, 'token.json');
+
+    const mcp = createServer({ surface: 'local' });
+    const { authUrl } = parse(await callTool(mcp, 'authenticate'));
+    const params = new URL(authUrl).searchParams;
+
+    // What the browser does after the person approves.
+    const callback = new URL(params.get('redirect_uri'));
+    callback.searchParams.set('state', params.get('state'));
+    callback.searchParams.set('code', 'the-code');
+    const page = await fetch(callback);
+    assert.equal(page.status, 200);
+    assert.match(await page.text(), /writer@example\.test/);
+
+    const stored = JSON.parse(await readFile(process.env.EZQUILL_TOKEN_PATH, 'utf8'));
+    assert.equal(stored.accessToken, accessToken);
+
+    const again = parse(await callTool(mcp, 'authenticate'));
+    assert.equal(again.status, 'already_signed_in');
+    assert.equal(again.account, 'writer@example.test');
   });
 });
