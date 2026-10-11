@@ -95,7 +95,10 @@ const templateSchema = closed(
     },
     extraBlocks: {
       type: 'array',
-      description: 'Standing blocks of the house (EYES, FIRST FRAME, NO FADES, KEEPS MOVING…), each placed after a compiler block.',
+      description:
+        'Standing blocks of the house (FIRST FRAME, NO FADES, KEEPS MOVING…), each placed after a compiler block. ' +
+        'A compiler block\'s name (CAST, EYES, EARS, ANATOMY, AUDIO, LIGHTING, NO-TEXT…) is refused: a rule for one of ' +
+        'those goes in add_rule with that block, and relabelling one goes in `blocks`.',
       items: closed(
         { name: { type: 'string' }, text: { type: 'string' }, after: { type: 'string' } },
         { required: ['name', 'text', 'after'] }
