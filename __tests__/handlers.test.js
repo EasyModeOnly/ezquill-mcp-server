@@ -102,6 +102,40 @@ describe('search_project', () => {
 });
 
 describe('list_projects', () => {
+  test('groups a show\'s seasons under its series, in order (ezquill epic #47)', async () => {
+    stubFetch({
+      '/projects': {
+        projects: [
+          { id: 'p2', title: 'Tidewater, Season 2', writingType: 'script', seriesId: 's1', seriesOrder: 2 },
+          { id: 'n1', title: 'Low Water', writingType: 'novel' },
+          { id: 'p1', title: 'Tidewater, Season 1', writingType: 'script', seriesId: 's1', seriesOrder: 1 },
+        ],
+        hasMore: false,
+        total: 3,
+      },
+      '/series': { series: [{ id: 's1', title: 'Tidewater', role: 'owner' }, { id: 'empty', title: 'Nothing listed' }] },
+    });
+    const result = await run('list_projects', {});
+    assert.equal(result.projects.length, 3);
+    assert.deepEqual(result.series, [{
+      id: 's1', title: 'Tidewater', role: 'owner',
+      projects: [
+        { id: 'p1', title: 'Tidewater, Season 1', seriesOrder: 1 },
+        { id: 'p2', title: 'Tidewater, Season 2', seriesOrder: 2 },
+      ],
+    }]);
+  });
+
+  test('a failed series read leaves the project list whole', async () => {
+    stubFetch({
+      '/projects': { projects: [{ id: 'n1', title: 'Low Water', writingType: 'novel' }], hasMore: false, total: 1 },
+      '/series': { __status: 500 },
+    });
+    const result = await run('list_projects', {});
+    assert.equal(result.projects.length, 1);
+    assert.equal(result.series, undefined);
+  });
+
   test('an empty account is NO_PROJECTS, not an empty list', async () => {
     stubFetch({ '/projects': { projects: [], hasMore: false, total: 0 } });
     await assert.rejects(

@@ -16,6 +16,7 @@
       "params": [
         "genre",
         "production",
+        "seriesId",
         "shape",
         "structure",
         "synopsis",
@@ -114,6 +115,7 @@
         "inverseKind",
         "kind",
         "name",
+        "owner",
         "production",
         "profile",
         "projectId",

@@ -112,8 +112,10 @@ export const tools = [
       'Only when the writer has asked for one: it stays on their dashboard. Confirm the ' +
       'title, writing type and structure with them first. A film, a show or a generated ' +
       'short is a `script`: pick its shape, and set production for shots, takes and ' +
-      'compiled prompts. The result lists the levels this project uses; plantedLevels is ' +
-      'what ezQuill itself would create.',
+      'compiled prompts. A show (shape series, or parts) is a series of season projects: ' +
+      'this creates the series and its first season, or — given seriesId — the next ' +
+      'season of an existing show, which shares its cast and bible. The result lists the ' +
+      'levels this project uses; plantedLevels is what ezQuill itself would create.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -133,6 +135,13 @@ export const tools = [
             'Scripts only. Digital content creation: a shot under every scene, compiled ' +
             'prompts and takes. Pro and up; refused on a plan without it.',
         },
+        seriesId: {
+          type: 'string',
+          description:
+            "A show's series id (list_projects → series), to add its NEXT season. The new " +
+            "season takes the show's title and the season's number; shape and production " +
+            'carry over unless given.',
+        },
         synopsis: { type: 'string' },
         genre: { type: 'string' },
         structure: {
@@ -148,7 +157,26 @@ export const tools = [
     annotations: { readOnlyHint: false, destructiveHint: false },
 
     async handler(args) {
-      const { title, writingType, synopsis, genre } = args;
+      const { writingType, synopsis, genre } = args;
+      let { title } = args;
+      // The next season of an existing show: its shape and production carry
+      // over from the latest season unless the caller states them.
+      let show = null;
+      if (args.seriesId) {
+        if (writingType !== 'script') {
+          throw new ToolError(Code.REQUEST_FAILED, 'Only a script can be a season of a show.');
+        }
+        show = await call(`/series/${args.seriesId}`, { query: { withProjects: true } });
+        const latest = show.projects?.[show.projects.length - 1];
+        if (latest) {
+          const prior = await call(`/projects/${latest.id}`);
+          args = {
+            ...args,
+            shape: args.shape ?? prior.shape ?? 'series',
+            production: args.production ?? prior.production === true,
+          };
+        }
+      }
       const shapes = await shapesFor(writingType);
       if (shapes.length === 0 && (args.shape !== undefined || args.production !== undefined)) {
         throw new ToolError(
@@ -171,18 +199,56 @@ export const tools = [
       // which is the one artefact of this tool a writer did not ask for.
       const nodes = planNodes(args.structure ?? [], levels, writingType);
 
+      // A show is a series of season projects (ezquill epic #47): a new one
+      // gets its series first, then its first season; a seriesId adds the next.
+      const isShow = writingType === 'script' && ['series', 'parts'].includes(structureOf.shape);
+      const member = structureOf.shape === 'parts' ? 'Part' : 'Season';
+      let membership = {};
+      let createdSeries = null;
+      if (show) {
+        if (!isShow) {
+          throw new ToolError(Code.REQUEST_FAILED, 'A season of a show is shaped as a series or in parts.');
+        }
+        const order = Math.max(0, ...(show.projects ?? []).map((p, i) => p.seriesOrder ?? i + 1)) + 1;
+        title = `${show.title}, ${member} ${order}`;
+        membership = { seriesId: show.id, seriesOrder: order };
+      } else if (isShow) {
+        createdSeries = await call('/series', {
+          method: 'POST',
+          body: {
+            title,
+            writingType: 'script',
+            ...(synopsis ? { description: synopsis } : {}),
+            metadata: { type: 'series', status: 'active', ...(genre ? { genre } : {}) },
+          },
+        });
+        membership = { seriesId: createdSeries.id, seriesOrder: 1 };
+        title = `${title}, ${member} 1`;
+      }
+
       // Only the fields CreateInput declares: the API decodes with
       // DisallowUnknownFields, so an extra key is a 400.
-      const project = await call('/projects', {
-        method: 'POST',
-        body: {
-          title,
-          writingType,
-          ...(shapes.length ? { shape: structureOf.shape, production: structureOf.production } : {}),
-          ...(synopsis ? { synopsis } : {}),
-          ...(genre ? { genre } : {}),
-        },
-      });
+      let project;
+      try {
+        project = await call('/projects', {
+          method: 'POST',
+          body: {
+            title,
+            writingType,
+            ...membership,
+            ...(shapes.length ? { shape: structureOf.shape, production: structureOf.production } : {}),
+            ...(synopsis ? { synopsis } : {}),
+            ...(genre ? { genre } : {}),
+          },
+        });
+      } catch (err) {
+        // A new show's series exists by now; a season the API refused (a plan
+        // limit, say) must not leave it behind, empty, on the dashboard.
+        if (createdSeries) {
+          await call(`/series/${createdSeries.id}`, { method: 'DELETE' }).catch(() => {});
+        }
+        throw err;
+      }
 
       let created = [];
       if (nodes.length > 0) {
@@ -210,7 +276,9 @@ export const tools = [
           writingType: project.writingType,
           ...(project.shape ? { shape: project.shape, production: project.production === true } : {}),
           status: project.status,
+          ...(membership.seriesId ? { seriesId: membership.seriesId, seriesOrder: membership.seriesOrder } : {}),
         },
+        ...(createdSeries ? { series: { id: createdSeries.id, title: createdSeries.title } } : {}),
         created: created.map((n) => ({
           id: n.id,
           title: n.title,

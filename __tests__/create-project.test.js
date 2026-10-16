@@ -335,3 +335,60 @@ describe('create_project — a script', () => {
     assert.ok(!sent.some((r) => r.method === 'POST'));
   });
 });
+
+// A show is a series of season projects (ezquill epic #47).
+describe('create_project for a show', () => {
+  test('a new show makes its series, then Season 1 in it', async () => {
+    const sent = stub({
+      'GET /writing-types': REGISTRY,
+      'POST /series': { id: 's1', title: 'Night Ferry' },
+      'POST /projects': (b) => ({ id: 'p1', ...b, status: 'active' }),
+    });
+    const out = await run('create_project', { title: 'Night Ferry', writingType: 'script', shape: 'series', production: true });
+
+    const series = sent.find((r) => r.method === 'POST' && r.path.endsWith('/series'));
+    assert.deepEqual(series.body.writingType, 'script');
+    const project = sent.find((r) => r.method === 'POST' && r.path.endsWith('/projects'));
+    assert.equal(project.body.title, 'Night Ferry, Season 1');
+    assert.equal(project.body.seriesId, 's1');
+    assert.equal(project.body.seriesOrder, 1);
+    assert.deepEqual(out.series, { id: 's1', title: 'Night Ferry' });
+    assert.equal(out.project.seriesOrder, 1);
+  });
+
+  test('a feature stays one project, with no series', async () => {
+    const sent = stub({
+      'GET /writing-types': REGISTRY,
+      'POST /projects': (b) => ({ id: 'p1', ...b, status: 'active' }),
+    });
+    await run('create_project', { title: 'Heat', writingType: 'script', shape: 'feature' });
+    assert.equal(sent.some((r) => r.path.endsWith('/series')), false);
+  });
+
+  test('seriesId adds the next season, carrying shape and production over', async () => {
+    const sent = stub({
+      'GET /writing-types': REGISTRY,
+      'GET /series/s1': { id: 's1', title: 'Tidewater', projects: [{ id: 'a', seriesOrder: 1 }, { id: 'b', seriesOrder: 2 }] },
+      'GET /projects/b': { id: 'b', shape: 'series', production: true },
+      'POST /projects': (b) => ({ id: 'p3', ...b, status: 'active' }),
+    });
+    const out = await run('create_project', { title: 'ignored', writingType: 'script', seriesId: 's1' });
+    const project = sent.find((r) => r.method === 'POST' && r.path.endsWith('/projects'));
+    assert.equal(project.body.title, 'Tidewater, Season 3');
+    assert.equal(project.body.seriesOrder, 3);
+    assert.equal(project.body.shape, 'series');
+    assert.equal(project.body.production, true);
+    assert.equal(sent.some((r) => r.method === 'POST' && r.path.endsWith('/series')), false);
+    assert.equal(out.project.seriesId, 's1');
+  });
+
+  test('a refused first season takes its new series with it', async () => {
+    const sent = stub({
+      'GET /writing-types': REGISTRY,
+      'POST /series': { id: 's1', title: 'Night Ferry' },
+      'POST /projects': { fail: 403 },
+    });
+    await assert.rejects(() => run('create_project', { title: 'Night Ferry', writingType: 'script', shape: 'series' }));
+    assert.ok(sent.some((r) => r.method === 'DELETE' && r.path.endsWith('/series/s1')));
+  });
+});
