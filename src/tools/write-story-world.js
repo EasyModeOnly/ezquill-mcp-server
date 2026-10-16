@@ -27,6 +27,14 @@ export const tools = [
           description: 'character, location, faction, item, term, research, worldbuilding, theme…',
         },
         name: { type: 'string' },
+        owner: {
+          type: 'string',
+          enum: ['series', 'project'],
+          description:
+            'For create, in a season of a show: "series" puts it in the whole show, so ' +
+            'every season shares one (the default for a show\'s cast, sets and props); ' +
+            '"project" keeps it to this season, for a one-season guest. Ignored outside a series.',
+        },
         description: { type: 'string' },
         tags: { type: 'array', items: { type: 'string' } },
         profile: {
@@ -79,6 +87,9 @@ export const tools = [
             body: {
               kind: args.kind,
               name: args.name,
+              // Absent, the API decides: a script in a series files it on the
+              // show (ezquill epic #47), anything else on the project.
+              ...(args.owner ? { owner: args.owner } : {}),
               ...(args.description ? { description: args.description } : {}),
               ...(args.tags ? { tags: args.tags } : {}),
               // A profile written by anything other than a person goes in the

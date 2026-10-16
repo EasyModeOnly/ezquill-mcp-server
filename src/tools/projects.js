@@ -14,7 +14,8 @@ export const tools = [
   {
     name: 'list_projects',
     description:
-      "List the writer's projects. Start here: every other tool needs a projectId.",
+      "List the writer's projects. Start here: every other tool needs a projectId. A show " +
+      'is a series whose seasons are projects; `series` names each one and its seasons in order.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -41,6 +42,7 @@ export const tools = [
         status: p.status,
         wordCount: p.progress?.totalWordCount ?? 0,
         seriesId: p.seriesId ?? undefined,
+        seriesOrder: p.seriesOrder ?? undefined,
       }));
 
       // "Signed in and nothing here" is a fact an agent must be able to act on.
@@ -78,7 +80,28 @@ export const tools = [
         );
       }
 
-      return { projects, hasMore: Boolean(body?.hasMore), total: body?.total ?? projects.length };
+      // Seasons grouped under their show (ezquill epic #47). The series list is
+      // the API's own — owned and shared — so a season can be named by its
+      // show; a failure to read it leaves the project list whole.
+      const listed = await call('/series').catch(() => null);
+      const series = (listed?.series ?? [])
+        .map((s) => ({
+          id: s.id,
+          title: s.title,
+          role: s.role,
+          projects: projects
+            .filter((p) => p.seriesId === s.id)
+            .sort((a, b) => (a.seriesOrder ?? 0) - (b.seriesOrder ?? 0))
+            .map((p) => ({ id: p.id, title: p.title, seriesOrder: p.seriesOrder })),
+        }))
+        .filter((s) => s.projects.length > 0);
+
+      return {
+        projects,
+        ...(series.length ? { series } : {}),
+        hasMore: Boolean(body?.hasMore),
+        total: body?.total ?? projects.length,
+      };
     },
   },
 

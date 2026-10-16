@@ -529,6 +529,15 @@ describe('manage_entity', () => {
     assert.equal(profile.authored.role, 'Captain', 'the change lands in the authored layer');
   });
 
+  test('create sends the owner only when asked, so the API\'s default holds otherwise', async () => {
+    const sent = stub({ 'POST /entities': (body) => ({ id: 'e9', ...body }) });
+    await run('manage_entity', { projectId: 'p', action: 'create', kind: 'character', name: 'Guest', owner: 'project' });
+    await run('manage_entity', { projectId: 'p', action: 'create', kind: 'character', name: 'Sal' });
+    const [guest, sal] = sent.filter((r) => r.method === 'POST').map((r) => r.body);
+    assert.equal(guest.owner, 'project');
+    assert.equal('owner' in sal, false);
+  });
+
   test('create puts a profile under authored, not at the top level', async () => {
     const sent = stub({ 'POST /entities': (body) => ({ id: 'e9', ...body }) });
     await run('manage_entity', {

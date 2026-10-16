@@ -71,6 +71,9 @@ Changing things:
   (feature, series, parts). With digital content creation ON it has a shot
   under every scene, takes and compiled prompts; with it off those tools
   refuse, and the writer switches it on in settings.
+- A show is a series; each season is a project (see list_projects
+  "series"). Its cast and bible are the show's: edit them once from any
+  season, never copy them. create_project with seriesId adds a season.
 - In a script with digital content creation on, what a generator needs to draw a character,
   set or prop (look line, reference-asset / Element ID, voice, geography) goes
   in manage_entity "production", never in "profile": every shot's prompt is
