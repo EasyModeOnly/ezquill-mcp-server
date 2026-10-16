@@ -194,7 +194,8 @@ export const tools = [
           const typed = wanted.filter((n) => n.nodeType);
           if (typed.length > 0) {
             const project = await call(`/projects/${projectId}`);
-            const levels = await addableLevelsFor(project.writingType);
+            // The project, not its type: a script's levels are its shape's.
+            const levels = await addableLevelsFor(project);
             const allowed = levels.map((l) => l.key);
             const unknown = typed.find((n) => !allowed.includes(n.nodeType));
             if (unknown) {

@@ -28,6 +28,32 @@ const REGISTRY = {
       levels: [{ key: 'post', label: 'Post', pluralLabel: 'Posts', children: [], carriesProse: true, numbered: false }],
       plantedLevels: ['post'],
     },
+    // A script: its levels are its shape's, plus shots with production on
+    // (ezquill epic #48). The entry's own levels are the default variant's.
+    (() => {
+      const act = { key: 'act', label: 'Act', children: ['sequence'], carriesProse: false, numbered: true };
+      const sequence = { key: 'sequence', label: 'Sequence', children: ['scene'], carriesProse: false };
+      const scene = { key: 'scene', label: 'Scene', children: [], carriesProse: true, numbered: true };
+      const episode = { key: 'episode', label: 'Episode', children: ['scene'], carriesProse: false, numbered: true };
+      const shot = { key: 'shot', label: 'Shot', children: [], carriesProse: true, numbered: true, produced: true };
+      const withShot = (levels) => [...levels.map((l) => (l.key === 'scene' ? { ...l, children: ['shot'] } : l)), shot];
+      const feature = [act, sequence, scene];
+      const series = [episode, scene];
+      const v = (shape, production, levels, plantedLevels) => ({ shape, production, levels, plantedLevels });
+      return {
+        key: 'script',
+        levels: feature,
+        plantedLevels: ['act', 'sequence', 'scene'],
+        variants: [
+          v('feature', false, feature, ['act', 'sequence', 'scene']),
+          v('feature', true, withShot(feature), ['act', 'sequence', 'scene']),
+          v('parts', false, feature, ['act', 'sequence', 'scene']),
+          v('parts', true, withShot(feature), ['act', 'sequence', 'scene']),
+          v('series', false, series, ['episode', 'scene']),
+          v('series', true, withShot(series), ['episode', 'scene']),
+        ],
+      };
+    })(),
   ],
 };
 
@@ -217,8 +243,12 @@ describe('create_project — what is sent', () => {
 
   test('the writing type is a closed enum in the schema', () => {
     const schema = tool('create_project').inputSchema;
-    assert.equal(schema.properties.writingType.enum.length, 10);
+    assert.equal(schema.properties.writingType.enum.length, 9);
     assert.ok(!schema.properties.writingType.enum.includes('fiction'));
+    // Both became `script` (ezquill epic #48), and the API refuses them new.
+    assert.ok(schema.properties.writingType.enum.includes('script'));
+    assert.ok(!schema.properties.writingType.enum.includes('screenplay'));
+    assert.ok(!schema.properties.writingType.enum.includes('shortform-video'));
     assert.deepEqual(schema.required.sort(), ['title', 'writingType']);
   });
 
@@ -260,5 +290,48 @@ describe('manage_outline add — node types checked against the project', () => 
     });
     const result = await run('manage_outline', { projectId: 'p', action: 'add', nodes: [{ title: 'P', nodeType: 'post' }] });
     assert.equal(result.created.length, 1);
+  });
+});
+
+describe('create_project — a script', () => {
+  test('sends the shape and the switch, and checks levels against that variant', async () => {
+    const sent = stub({ ...happy(), 'POST /projects': { ...created, writingType: 'script', shape: 'series', production: true } });
+    const result = await run('create_project', {
+      title: 'Saltpig', writingType: 'script', shape: 'series', production: true,
+      structure: [{ nodeType: 'episode', children: [{ nodeType: 'scene', children: [{ nodeType: 'shot' }] }] }],
+    });
+    const post = sent.find((r) => r.method === 'POST' && r.path.endsWith('/projects'));
+    assert.deepEqual(
+      { writingType: post.body.writingType, shape: post.body.shape, production: post.body.production },
+      { writingType: 'script', shape: 'series', production: true }
+    );
+    assert.deepEqual(result.levels.map((l) => l.key), ['episode', 'scene', 'shot']);
+    assert.equal(result.project.shape, 'series');
+  });
+
+  test('defaults a script to a written feature', async () => {
+    const sent = stub({ ...happy(), 'POST /projects': { ...created, writingType: 'script', shape: 'feature' } });
+    await run('create_project', { title: 'Heat', writingType: 'script' });
+    const post = sent.find((r) => r.method === 'POST' && r.path.endsWith('/projects'));
+    assert.equal(post.body.shape, 'feature');
+    assert.equal(post.body.production, false);
+  });
+
+  test('a shot without production is not a level, and nothing is created', async () => {
+    const sent = stub(happy());
+    await assert.rejects(
+      () => run('create_project', {
+        title: 'H', writingType: 'script', shape: 'series',
+        structure: [{ nodeType: 'episode', children: [{ nodeType: 'scene', children: [{ nodeType: 'shot' }] }] }],
+      }),
+      (err) => err.code === Code.UNKNOWN_NODE_TYPE
+    );
+    assert.ok(!sent.some((r) => r.method === 'POST'));
+  });
+
+  test('a shape on a type that has none is refused before anything exists', async () => {
+    const sent = stub(happy());
+    await assert.rejects(() => run('create_project', { title: 'H', writingType: 'novel', shape: 'series' }));
+    assert.ok(!sent.some((r) => r.method === 'POST'));
   });
 });

@@ -8,12 +8,13 @@
  * block text differs by one word produces a different clip.
  */
 import { call } from '../lib/api.js';
+import { explainProductionOff } from '../lib/errors.js';
 
-export const tools = [
+const defined = [
   {
     name: 'get_production',
     description:
-      'What has been produced in a shortform-video show, and what is next. scope "project": ' +
+      'What has been produced in a script with digital content creation on, and what is next. scope "project": ' +
       'shots per status, next up, blocked shots with why, unproduced scripts, spend; each episode ' +
       'leads with `stage` and `progress` — `gate` is only its furthest-behind shot. ' +
       'scope "episode" (nodeId = the episode): its shots in status columns with takes, credits ' +
@@ -67,3 +68,13 @@ export const tools = [
     },
   },
 ];
+
+/**
+ * Every production tool says plainly when the project is a script with
+ * digital content creation switched off, rather than passing on the API's
+ * "not a produced level" (ezquill #537).
+ */
+export const tools = defined.map((tool) => ({
+  ...tool,
+  handler: (args) => explainProductionOff(args?.projectId, () => tool.handler(args), call),
+}));

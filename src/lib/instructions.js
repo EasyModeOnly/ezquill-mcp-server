@@ -67,7 +67,11 @@ Changing things:
   "group".
 - Read a scene before writing into it. The tools protect the manuscript, not
   your judgement about what belongs in it.
-- In a shortform-video project, what a generator needs to draw a character,
+- A film, a show or a generated short is a "script" project with a shape
+  (feature, series, parts). With digital content creation ON it has a shot
+  under every scene, takes and compiled prompts; with it off those tools
+  refuse, and the writer switches it on in settings.
+- In a script with digital content creation on, what a generator needs to draw a character,
   set or prop (look line, reference-asset / Element ID, voice, geography) goes
   in manage_entity "production", never in "profile": every shot's prompt is
   compiled from production fields, and it does not read the profile.
@@ -75,7 +79,7 @@ Changing things:
   ones. list_entities reports them as "templates" and get_entity as
   "template": fill those keys, and do not invent profile keys the project
   never declared.
-- Producing a shortform show: call compile_prompt for a shot and submit
+- Producing a show: call compile_prompt for a shot and submit
   exactly its "prompt" (or record your edit), then record the result with
   manage_production record_take — rejected takes as well as accepted ones,
   with a verdictReason. The job ID is the durable reference; a CDN URL
