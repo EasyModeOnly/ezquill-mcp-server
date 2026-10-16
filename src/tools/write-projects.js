@@ -32,7 +32,7 @@ import { randomUUID } from 'node:crypto';
 import { call } from '../lib/api.js';
 import { appBaseUrl } from '../lib/app-url.js';
 import { Code, ToolError } from '../lib/errors.js';
-import { levelsFor, plantedLevelsFor } from '../lib/writing-types.js';
+import { levelsFor, plantedLevelsFor, shapesFor } from '../lib/writing-types.js';
 
 /**
  * Mirrors maxBatchNodes in the API's nodes service. The server is the real
@@ -53,14 +53,22 @@ export const WRITING_TYPES = [
   'novel',
   'academic',
   'blog',
-  'screenplay',
+  'script',
   'poetry',
   'business',
   'journalism',
   'technical',
   'compendium',
-  'shortform-video',
 ];
+
+/**
+ * A script's shapes (ezquill epic #48). Screenplay and shortform video became
+ * one `script` type that picks a shape and may switch production on; the API
+ * refuses the two old types for a new project. The live list is the registry's
+ * (`shapesFor`), and is checked before anything is created; this is the
+ * schema's enum, for the same reason WRITING_TYPES is one.
+ */
+export const SCRIPT_SHAPES = ['feature', 'series', 'parts'];
 
 /**
  * The document a prose-level node is created with.
@@ -83,8 +91,9 @@ const structureEntry = {
     nodeType: {
       type: 'string',
       description:
-        "A level from this writing type's vocabulary: part/chapter for a novel, " +
-        'act/sequence/scene for a screenplay, post for a blog. Anything else is refused.',
+        "A level from this project's vocabulary: part/chapter for a novel, act/sequence/" +
+        'scene for a feature script, episode/scene (and shot, with production on) for a ' +
+        'series script, post for a blog. Anything else is refused.',
     },
     children: {
       type: 'array',
@@ -101,13 +110,29 @@ export const tools = [
     description:
       'Create a new project, optionally with its structure (parts, chapters, acts, posts…). ' +
       'Only when the writer has asked for one: it stays on their dashboard. Confirm the ' +
-      'title, writing type and structure with them first. The result lists the levels ' +
-      'this writing type uses; plantedLevels is what ezQuill itself would create.',
+      'title, writing type and structure with them first. A film, a show or a generated ' +
+      'short is a `script`: pick its shape, and set production for shots, takes and ' +
+      'compiled prompts. The result lists the levels this project uses; plantedLevels is ' +
+      'what ezQuill itself would create.',
     inputSchema: {
       type: 'object',
       properties: {
         title: { type: 'string' },
         writingType: { type: 'string', enum: WRITING_TYPES },
+        shape: {
+          type: 'string',
+          enum: SCRIPT_SHAPES,
+          description:
+            'Scripts only. feature: one film (act → sequence → scene). series: one season ' +
+            'of a show (episode → scene). parts: one part of a work in parts, shaped like a ' +
+            'feature. Defaults to feature.',
+        },
+        production: {
+          type: 'boolean',
+          description:
+            'Scripts only. Digital content creation: a shot under every scene, compiled ' +
+            'prompts and takes. Pro and up; refused on a plan without it.',
+        },
         synopsis: { type: 'string' },
         genre: { type: 'string' },
         structure: {
@@ -124,8 +149,22 @@ export const tools = [
 
     async handler(args) {
       const { title, writingType, synopsis, genre } = args;
-      const levels = await levelsFor(writingType);
-      const plantedLevels = await plantedLevelsFor(writingType);
+      const shapes = await shapesFor(writingType);
+      if (shapes.length === 0 && (args.shape !== undefined || args.production !== undefined)) {
+        throw new ToolError(
+          Code.REQUEST_FAILED,
+          `A ${writingType} has no shape or production switch; only a script does.`
+        );
+      }
+      if (args.shape !== undefined && !shapes.includes(args.shape)) {
+        throw new ToolError(Code.REQUEST_FAILED, `shape must be one of ${shapes.join(', ')}.`);
+      }
+      const structureOf = {
+        writingType,
+        ...(shapes.length ? { shape: args.shape ?? shapes[0], production: args.production === true } : {}),
+      };
+      const levels = await levelsFor(structureOf);
+      const plantedLevels = await plantedLevelsFor(structureOf);
 
       // EVERYTHING that can refuse is checked before the project is created.
       // A refusal after the POST leaves an empty project on the dashboard,
@@ -139,6 +178,7 @@ export const tools = [
         body: {
           title,
           writingType,
+          ...(shapes.length ? { shape: structureOf.shape, production: structureOf.production } : {}),
           ...(synopsis ? { synopsis } : {}),
           ...(genre ? { genre } : {}),
         },
@@ -168,6 +208,7 @@ export const tools = [
           id: project.id,
           title: project.title,
           writingType: project.writingType,
+          ...(project.shape ? { shape: project.shape, production: project.production === true } : {}),
           status: project.status,
         },
         created: created.map((n) => ({

@@ -1,5 +1,5 @@
 {
-  "version": "0.14.2",
+  "version": "0.15.0",
   "tools": {
     "authenticate": {
       "params": [
@@ -15,6 +15,8 @@
     "create_project": {
       "params": [
         "genre",
+        "production",
+        "shape",
         "structure",
         "synopsis",
         "title",

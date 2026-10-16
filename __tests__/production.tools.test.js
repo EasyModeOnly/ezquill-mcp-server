@@ -528,3 +528,41 @@ describe('shot fields, the house template and rules, from an agent (ezquill #431
     assert.match(out.warnings[0], /profile\.look is set but production\.look is not/);
   });
 });
+
+// ezquill #537: with digital content creation off, a script has no shot level,
+// and the API's refusal ("not a produced level") is about the wrong thing.
+describe('a script with production switched off', () => {
+  const refuse = (projectBody) => {
+    globalThis.fetch = async (url) => {
+      const u = new URL(url);
+      if (u.pathname.endsWith('/production-status')) {
+        return {
+          ok: false, status: 400, statusText: 'Bad Request',
+          json: async () => ({ error: { message: 'a shot is not a produced level', field: 'status' } }),
+        };
+      }
+      if (u.pathname.endsWith('/projects/p1')) return { ok: true, status: 200, json: async () => projectBody };
+      return { ok: true, status: 200, json: async () => ({}) };
+    };
+  };
+
+  test('is named as the reason, with where to switch it on', async () => {
+    refuse({ id: 'p1', title: 'Saltpig', writingType: 'script', shape: 'series', production: false });
+    await assert.rejects(
+      () => run('manage_production', { projectId: 'p1', action: 'set_status', nodeId: 's1', status: 'locked' }),
+      (err) => {
+        assert.equal(err.code, 'PRODUCTION_OFF');
+        assert.match(err.message, /digital content creation switched off/);
+        return true;
+      }
+    );
+  });
+
+  test('passes the original refusal on when production is on', async () => {
+    refuse({ id: 'p1', title: 'Saltpig', writingType: 'script', shape: 'series', production: true });
+    await assert.rejects(
+      () => run('manage_production', { projectId: 'p1', action: 'set_status', nodeId: 's1', status: 'locked' }),
+      (err) => err.code !== 'PRODUCTION_OFF' && /not a produced level/.test(err.message)
+    );
+  });
+});

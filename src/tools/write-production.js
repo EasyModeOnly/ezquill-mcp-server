@@ -19,7 +19,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { call } from '../lib/api.js';
-import { ToolError, Code } from '../lib/errors.js';
+import { ToolError, Code, explainProductionOff } from '../lib/errors.js';
 import { sectionBlocks } from '../lib/sections.js';
 import { occurrences, textOf } from '../lib/prose.js';
 
@@ -325,11 +325,11 @@ const patchSchema = closed(
   }
 );
 
-export const tools = [
+const defined = [
   {
     name: 'manage_production',
     description:
-      'Record what was produced for a shortform-video show. record_take: one generation of a shot ' +
+      'Record what was produced for a script with digital content creation on. record_take: one generation of a shot ' +
       '(accepted, rejected or pending — record rejected takes too); set backfill: true for a take generated ' +
       'earlier, so it is not stamped with today\'s prompt. update_take (by versionId alone): its verdict, reason, ' +
       'review marks, audio checks, voice, files or the model the tool actually used. A refused field is named ' +
@@ -673,6 +673,16 @@ export const tools = [
     },
   },
 ];
+
+/**
+ * Every production tool says plainly when the project is a script with
+ * digital content creation switched off, rather than passing on the API's
+ * "not a produced level" (ezquill #537).
+ */
+export const tools = defined.map((tool) => ({
+  ...tool,
+  handler: (args) => explainProductionOff(args?.projectId, () => tool.handler(args), call),
+}));
 
 /**
  * Make a line of a shot its dialogue (ezquill #458).

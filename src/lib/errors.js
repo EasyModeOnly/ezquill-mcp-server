@@ -44,6 +44,9 @@ export const Code = {
    * can be added to the one that exists.
    */
   STRUCTURE_FAILED: 'STRUCTURE_FAILED',
+  // A production tool on a script with digital content creation switched off
+  // (ezquill epic #48): the shots, takes and prompts exist only with it on.
+  PRODUCTION_OFF: 'PRODUCTION_OFF',
   /** Anything the API refused that does not fit above. */
   REQUEST_FAILED: 'REQUEST_FAILED',
 };
@@ -81,4 +84,37 @@ export function codeForStatus(status) {
   if (status === 409) return Code.STALE_CONTENT;
   if (status === 503) return Code.SEARCH_UNAVAILABLE;
   return Code.REQUEST_FAILED;
+}
+
+/**
+ * Run a production tool, and say plainly when it failed because the project is
+ * a script with digital content creation switched off (ezquill epic #48).
+ *
+ * The API's own refusal is accurate but about the wrong thing — "a shot is not
+ * a produced level" — since with production off a script has no shot level at
+ * all. Only a 400 is checked, and only by reading the project then, so a
+ * working call costs nothing extra.
+ */
+export async function explainProductionOff(projectId, run, read) {
+  try {
+    return await run();
+  } catch (err) {
+    if (err?.detail?.status !== 400 || !projectId) throw err;
+    let project;
+    try {
+      project = await read(`/projects/${projectId}`);
+    } catch {
+      throw err;
+    }
+    if (project?.writingType === 'script' && !project.production) {
+      throw new ToolError(
+        Code.PRODUCTION_OFF,
+        `"${project.title}" is a script with digital content creation switched off, so it has no ` +
+          'shots, takes or compiled prompts. The writer can switch it on in the project\'s settings ' +
+          '(Pro and up); nothing is deleted while it is off.',
+        { projectId }
+      );
+    }
+    throw err;
+  }
 }

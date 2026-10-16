@@ -45,9 +45,38 @@ export async function writingType(key) {
   return (await loadWritingTypes()).get(key);
 }
 
-/** The levels of a writing type, outermost first. Empty for an unknown type. */
-export async function levelsFor(key) {
-  return (await writingType(key))?.levels ?? [];
+/**
+ * The chain for a writing type — or for a PROJECT, whose shape and production
+ * switch pick a script's levels (ezquill epic #48).
+ *
+ * A script's entry carries `variants`, one per (shape, production), each
+ * already resolved by the API's registry; this only looks one up. A bare key
+ * gets the entry's own levels, which are its default variant's (a feature,
+ * written) — right for a type with one shape, and the reason a caller holding
+ * a project passes the project.
+ */
+async function chainFor(ref) {
+  const key = typeof ref === 'string' ? ref : ref?.writingType;
+  const entry = await writingType(key);
+  if (!entry) return undefined;
+  if (typeof ref === 'string' || !Array.isArray(entry.variants) || entry.variants.length === 0) return entry;
+  const production = ref.production === true;
+  const shape = entry.variants.some((v) => v.shape === ref.shape) ? ref.shape : entry.variants[0].shape;
+  return entry.variants.find((v) => v.shape === shape && v.production === production) ?? entry;
+}
+
+/**
+ * The levels of a writing type or a project, outermost first. Empty for an
+ * unknown type.
+ */
+export async function levelsFor(ref) {
+  return (await chainFor(ref))?.levels ?? [];
+}
+
+/** The shapes a writing type may take, default first; empty for a type with one. */
+export async function shapesFor(key) {
+  const variants = (await writingType(key))?.variants ?? [];
+  return [...new Set(variants.map((v) => v.shape))];
 }
 
 /**
@@ -58,14 +87,14 @@ export async function levelsFor(key) {
  * Kept apart from `levelsFor` on purpose: that is the planting chain, and a
  * group is never planted.
  */
-export async function addableLevelsFor(key) {
-  const levels = await levelsFor(key);
+export async function addableLevelsFor(ref) {
+  const levels = await levelsFor(ref);
   return [...levels, ...universal.filter((u) => !levels.some((l) => l.key === u.key))];
 }
 
 /** The levels the web wizard plants for this type: the chain down to the first prose level. */
-export async function plantedLevelsFor(key) {
-  return (await writingType(key))?.plantedLevels ?? [];
+export async function plantedLevelsFor(ref) {
+  return (await chainFor(ref))?.plantedLevels ?? [];
 }
 
 /**
@@ -77,6 +106,6 @@ export async function plantedLevelsFor(key) {
  * legitimate is a word the writing type does not have, which is the silent
  * failure this exists to catch.
  */
-export async function isKnownNodeType(key, nodeType) {
-  return (await levelsFor(key)).some((level) => level.key === nodeType);
+export async function isKnownNodeType(ref, nodeType) {
+  return (await levelsFor(ref)).some((level) => level.key === nodeType);
 }
