@@ -11,7 +11,11 @@
  * - **Record rejected takes too.** A rejection is paid for and it is where the
  *   lessons come from; a ledger of only accepted takes understates every cost.
  * - **The job id is the durable reference.** A CDN URL expires; always send the
- *   jobId, and a URL only as a convenience.
+ *   jobId, and a URL only as a convenience. Better still, when the agent has
+ *   the file itself: request_upload → PUT → finalize_upload puts it in
+ *   ezQuill's own storage (epic #39), and the take records a FileRef
+ *   {provider: "ezquill", role, mediaId}. A signed URL from either end of that
+ *   is temporary and is never recorded.
  * - **A take's record is the compile's.** record_take fills the prompt, the
  *   generation parameters and the asset stamps from compile_prompt unless told
  *   otherwise, so an agent's take goes stale on a redesign exactly as the
@@ -30,7 +34,21 @@ const ACTIONS = [
   'record_still', 'record_cue', 'record_cut', 'update_record', 'delete_record',
   'set_status', 'set_shot', 'set_prompt_template', 'add_rule', 'remove_rule',
   'override_rule', 'clear_override', 'set_show_settings', 'mark_dialogue',
+  'request_upload', 'finalize_upload',
 ];
+
+// Uploading a file (epic #39) is not a production write: any project may hold
+// files, so these two skip the "digital content creation is off" explanation,
+// which would otherwise turn an upload's own 400 (a wrong type, a bad size)
+// into a claim about the project's settings.
+const UPLOAD_ACTIONS = new Set(['request_upload', 'finalize_upload']);
+
+// What the API will store is ITS list (storage/contenttype.go), which also
+// sniffs the bytes. Named here in a description rather than as an enum, so a
+// type the API adds is not refused by a stale copy of the list.
+const UPLOAD_TYPES_TEXT =
+  'image/png, image/jpeg, image/gif, image/webp, image/avif, video/mp4, video/quicktime, video/webm, ' +
+  'audio/mpeg, audio/wav, audio/ogg, audio/flac, audio/mp4 (m4a), audio/webm, application/pdf. No SVG.';
 
 // A shot's production fields (ezquill #431): what the compiler reads for its
 // CAMERA, SHOT and params blocks, which only the web composer could write.
@@ -159,6 +177,9 @@ const ruleSchema = closed(
 // no tool here does: a stale client's extra key should reach the API and get
 // the API's located error, not be dropped silently by the transport.
 const PROVIDERS = ['higgsfield', 'runway', 'veo', 'kling', 'elevenlabs', 'local', 'other'];
+// A FILE can also be in ezQuill's own storage (epic #39, media.Providers in
+// the API). Not a generator, so it is not offered as a take's `tool`.
+const FILE_PROVIDERS = [...PROVIDERS, 'ezquill'];
 const ROLES = ['source', 'revoiced', 'final', 'last_frame', 'handoff_frame', 'still', 'audio', 'project', 'export'];
 const REASONS = ['anatomy', 'eyes', 'identity', 'framing', 'order', 'props', 'wardrobe', 'text', 'beat', 'audio', 'model_swap', 'other'];
 const REVIEW_ITEMS = REASONS.filter((r) => !['audio', 'model_swap', 'other'].includes(r));
@@ -166,8 +187,12 @@ const REVIEW_ITEMS = REASONS.filter((r) => !['audio', 'model_swap', 'other'].inc
 
 const fileRefSchema = closed(
   {
-    provider: { type: 'string', enum: PROVIDERS },
+    provider: { type: 'string', enum: FILE_PROVIDERS },
     role: { type: 'string', enum: ROLES },
+    mediaId: {
+      type: 'string',
+      description: 'provider "ezquill" only, and required there: the file\'s id from request_upload / finalize_upload.',
+    },
     jobId: { type: 'string', description: 'The generator job id: the durable reference.' },
     assetId: { type: 'string' },
     path: { type: 'string', description: 'A local or editor path, stored as written.' },
@@ -177,7 +202,9 @@ const fileRefSchema = closed(
   },
   {
     required: ['provider', 'role'],
-    description: 'A file outside ezQuill. Needs at least one of jobId, path, url.',
+    description:
+      'A file. Outside ezQuill it needs at least one of jobId, path, url. One uploaded to ezQuill is ' +
+      '{provider: "ezquill", role, mediaId} — never a url: a signed link expires within minutes.',
   }
 );
 
@@ -349,7 +376,11 @@ const defined = [
       'mark_dialogue: make a shot\'s line its DIALOGUE — quote the line exactly as it stands (e.g. ' +
       'SAL: "And slop needs love too."); it becomes its own quote-block paragraph, its NAME: label and ' +
       'quotation marks dropped (the compiler writes "SAL says: …"), and speakerId links who says it. ' +
-      'The words themselves are unchanged. This is how to clear inline-dialogue-not-marked.',
+      'The words themselves are unchanged. This is how to clear inline-dialogue-not-marked. ' +
+      'request_upload (contentType, bytes, filename): store a file you HAVE (a downloaded clip, a still) in ezQuill, ' +
+      'so the take stops depending on a CDN link that rotates. It returns a signed url and headers: PUT the bytes ' +
+      'there with exactly those headers, then finalize_upload (mediaId), then record it as the FileRef ' +
+      '{provider: "ezquill", role, mediaId} in record_take / update_take. Never record the signed url.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -411,6 +442,18 @@ const defined = [
           description: 'override_rule: what holds instead, said to the model in an OVERRIDE block ("Sal has a third arm"). Omit to only drop the rule.',
         },
         file: fileRefSchema,
+        contentType: {
+          type: 'string',
+          description: `request_upload: the file's type, which the bytes must match. One of ${UPLOAD_TYPES_TEXT}`,
+        },
+        bytes: { type: 'integer', description: 'request_upload: the file\'s exact size in bytes. A different size is refused at finalize.' },
+        filename: { type: 'string', description: 'request_upload: the file\'s name, shown to the writer.' },
+        scope: {
+          type: 'string',
+          enum: ['project', 'series'],
+          description: 'request_upload: project (default), or series to file it on the show so every season can use it.',
+        },
+        mediaId: { type: 'string', description: 'finalize_upload: the mediaId request_upload returned.' },
       },
       required: ['projectId', 'action'],
     },
@@ -432,6 +475,7 @@ const defined = [
           if (!args.take.jobId) {
             throw new ToolError(Code.REQUEST_FAILED, 'record_take needs take.jobId — the durable reference to the clip.');
           }
+          checkStoredFiles(args.take, 'take');
           if (args.backfill) return recordBackfilledTake(projectId, args.nodeId, args.take);
           // The compile supplies what the app's ledger records automatically:
           // the prompt as it would be sent, the derived parameters, and the
@@ -481,6 +525,7 @@ const defined = [
 
         case 'update_take': {
           need('versionId', 'patch');
+          checkStoredFiles(args.patch, 'patch');
           // Applied by the SERVER to the stored take, under a row lock, so it
           // cannot erase a status or review somebody changed meanwhile. By
           // version alone (#435): the id is unique, and the server resolves
@@ -667,6 +712,16 @@ const defined = [
           };
         }
 
+        case 'request_upload': {
+          need('contentType', 'bytes', 'filename');
+          return requestUpload(projectId, args);
+        }
+
+        case 'finalize_upload': {
+          need('mediaId');
+          return finalizeUpload(projectId, args.mediaId);
+        }
+
         default:
           throw new ToolError(Code.REQUEST_FAILED, `Unknown action: ${action}`);
       }
@@ -681,8 +736,131 @@ const defined = [
  */
 export const tools = defined.map((tool) => ({
   ...tool,
-  handler: (args) => explainProductionOff(args?.projectId, () => tool.handler(args), call),
+  handler: (args) =>
+    UPLOAD_ACTIONS.has(args?.action)
+      ? tool.handler(args)
+      : explainProductionOff(args?.projectId, () => tool.handler(args), call),
 }));
+
+/** Single-quoted for a POSIX shell: the one character that ends it is escaped. */
+const shellQuote = (value) => `'${String(value).replace(/'/g, `'\\''`)}'`;
+
+/**
+ * Sign an upload (epic #39). The connector never carries the bytes: an MCP
+ * call is JSON, and a clip is tens of megabytes the agent already has on disk.
+ * So this hands back the signed PUT and the exact command that sends it, and
+ * the agent's own shell does the transfer.
+ */
+async function requestUpload(projectId, args) {
+  const ticket = await call(`/projects/${projectId}/media/uploads`, {
+    method: 'POST',
+    body: {
+      contentType: args.contentType,
+      bytes: args.bytes,
+      filename: args.filename,
+      ...(args.scope ? { scope: args.scope } : {}),
+    },
+  }).catch(storageError);
+  const mediaId = ticket?.media?.id;
+  const headers = ticket?.headers ?? {};
+  const curl = [
+    'curl -sS --fail -X',
+    ticket?.method ?? 'PUT',
+    '--data-binary',
+    `@${shellQuote(args.filename)}`,
+    ...Object.entries(headers).map(([k, v]) => `-H ${shellQuote(`${k}: ${v}`)}`),
+    shellQuote(ticket?.url),
+  ].join(' ');
+  return {
+    mediaId,
+    url: ticket?.url,
+    method: ticket?.method ?? 'PUT',
+    headers,
+    expiresAt: ticket?.expiresAt,
+    curl,
+    next:
+      `1. PUT the file's bytes to url with exactly these headers before expiresAt — e.g. run curl (the @ path is ` +
+      `the file on disk; adjust it if the file is not in the working directory). The headers are signed: change ` +
+      `or drop one and the PUT is refused. ` +
+      `2. Call manage_production finalize_upload with mediaId "${mediaId}". ` +
+      `3. Record it on the take: a FileRef {provider: "ezquill", role: "source" (or still, last_frame, ` +
+      `handoff_frame, audio…), mediaId: "${mediaId}"} in record_take take.files (or update_take patch.files). ` +
+      'Do NOT record this url anywhere: it is a signed link that stops working within minutes.',
+  };
+}
+
+/** Check what arrived and make it a file. The API's refusals are passed on as worded. */
+async function finalizeUpload(projectId, mediaId) {
+  const media = await call(`/projects/${projectId}/media/${mediaId}/finalize`, { method: 'POST' }).catch((err) => {
+    if (err?.detail?.status === 409) {
+      throw new ToolError(
+        Code.UPLOAD_INCOMPLETE,
+        `The bytes have not arrived yet (${err.message}). PUT the file to the signed url first, or wait for that ` +
+          'PUT to finish, then call finalize_upload again. Nothing was discarded.',
+        { status: 409, mediaId }
+      );
+    }
+    if (err?.detail?.status === 400) {
+      // The upload is DISCARDED on a mismatch (storage.Service.Finalize), so
+      // retrying finalize cannot help — saying so saves a loop.
+      throw new ToolError(
+        err.code,
+        `${err.message}. The upload was discarded: call request_upload again with the file's real type and size.`,
+        { ...err.detail, mediaId }
+      );
+    }
+    return storageError(err);
+  });
+  return {
+    media,
+    fileRef: { provider: 'ezquill', role: 'source', mediaId: media?.id ?? mediaId },
+    note:
+      'Stored. Record it with this fileRef (set role to what the file is: source, still, last_frame, ' +
+      'handoff_frame, audio…) in record_take take.files or update_take patch.files.',
+  };
+}
+
+/**
+ * A 503 from the media routes is file storage being off in this deployment,
+ * which the generic mapping would call search being unavailable.
+ */
+function storageError(err) {
+  if (err?.detail?.status === 503) {
+    throw new ToolError(Code.REQUEST_FAILED, err.message, err.detail);
+  }
+  throw err;
+}
+
+/**
+ * The API checks a FileRef's shape (media.FileRef.Validate); this catches the
+ * one mistake it cannot: recording an ezquill file BY its signed url. That url
+ * is valid for minutes, so a take holding it would lose the clip without
+ * anybody deleting anything — exactly what the upload existed to prevent.
+ */
+function checkStoredFiles(take, at) {
+  if (!take || typeof take !== 'object') return;
+  const refs = [
+    ...(Array.isArray(take.files) ? take.files.map((f, i) => [f, `${at}.files[${i}]`]) : []),
+    [take.lastFrame, `${at}.lastFrame`],
+    [take.handoffFrame, `${at}.handoffFrame`],
+    [take.startImage?.frame, `${at}.startImage.frame`],
+  ];
+  for (const [ref, path] of refs) {
+    if (ref?.provider !== 'ezquill') continue;
+    if (!ref.mediaId) {
+      throw new ToolError(Code.REQUEST_FAILED, `${path}.mediaId: an ezquill file needs the mediaId from finalize_upload.`, {
+        field: `${path}.mediaId`,
+      });
+    }
+    if (ref.url) {
+      throw new ToolError(
+        Code.REQUEST_FAILED,
+        `${path}.url: an ezquill file is recorded by mediaId alone. A signed url expires within minutes — drop it.`,
+        { field: `${path}.url` }
+      );
+    }
+  }
+}
 
 /**
  * Make a line of a shot its dialogue (ezquill #458).

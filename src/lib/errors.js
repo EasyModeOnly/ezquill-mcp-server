@@ -47,6 +47,18 @@ export const Code = {
   // A production tool on a script with digital content creation switched off
   // (ezquill epic #48): the shots, takes and prompts exist only with it on.
   PRODUCTION_OFF: 'PRODUCTION_OFF',
+  /**
+   * The owner's plan does not allow this (the API's 403 `plan_limit`): storage
+   * full, the project limit reached. Not FORBIDDEN_SCOPE — granting the
+   * connection more cannot help, and the API's message already says what can.
+   */
+  PLAN_LIMIT: 'PLAN_LIMIT',
+  /**
+   * finalize_upload before the bytes arrived (epic #39). Not STALE_CONTENT,
+   * which the generic 409 mapping would say: nobody changed anything, the PUT
+   * has simply not landed yet, and finalizing again afterwards is the fix.
+   */
+  UPLOAD_INCOMPLETE: 'UPLOAD_INCOMPLETE',
   /** Anything the API refused that does not fit above. */
   REQUEST_FAILED: 'REQUEST_FAILED',
 };

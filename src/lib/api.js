@@ -90,7 +90,11 @@ export async function call(path, opts = {}) {
     // provider`). Passed through: it is the one thing an agent needs to fix the
     // call, and dropping it is how one bad key became three guesses (#434).
     const field = typeof body?.error?.field === 'string' && body.error.field ? body.error.field : undefined;
-    const err = new ToolError(codeForStatus(response.status), message, {
+    // A plan limit is a 403 too, and must not read as a missing scope: the
+    // body's code says which (apierrors.NewPlanLimit).
+    const code =
+      response.status === 403 && body?.error?.code === 'plan_limit' ? Code.PLAN_LIMIT : codeForStatus(response.status);
+    const err = new ToolError(code, message, {
       status: response.status,
       ...(field ? { field } : {}),
       ...(attempts > 1 ? { attempts } : {}),

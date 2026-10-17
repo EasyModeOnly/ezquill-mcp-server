@@ -85,8 +85,9 @@ Changing things:
 - Producing a show: call compile_prompt for a shot and submit
   exactly its "prompt" (or record your edit), then record the result with
   manage_production record_take — rejected takes as well as accepted ones,
-  with a verdictReason. The job ID is the durable reference; a CDN URL
-  expires, so always send the jobId. Set a shot's status with set_status, and
+  with a verdictReason. Send the jobId (CDN URLs expire). With the file:
+  request_upload, PUT, finalize_upload, record its mediaId; never a signed
+  URL. Set a shot's status with set_status, and
   read what is next or blocked with get_production. Never create research
   entities to hold production state: takes, stills, cues and cuts have their
   own records.
