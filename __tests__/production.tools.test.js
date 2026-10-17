@@ -76,9 +76,30 @@ describe('manage_production', () => {
     assert.deepEqual(out.recorded, { versionId: 'v9', number: 3, status: 'rejected' });
   });
 
-  test('record_take refuses a take with no job id', async () => {
-    stub({});
+  // ezquill #546: a job id OR an uploaded file. A CDN link alone is neither.
+  test('record_take refuses a take with neither a job id nor an uploaded file', async () => {
+    const sent = stub({});
     await assert.rejects(run('manage_production', { projectId: 'p', action: 'record_take', nodeId: 's1', take: {} }), /jobId/);
+    await assert.rejects(
+      run('manage_production', {
+        projectId: 'p', action: 'record_take', nodeId: 's1',
+        take: { files: [{ provider: 'higgsfield', role: 'source', url: 'https://cdn.example.com/a.mp4' }] },
+      }),
+      (err) => err.detail.field === 'take.jobId' && /ezquill/.test(err.message)
+    );
+    assert.equal(sent.length, 0);
+  });
+
+  test('record_take records an uploaded clip with no job id', async () => {
+    const sent = stub({
+      'POST /api/video/compile': compiled,
+      'POST /versions': (body) => ({ id: 'v9', versionNumber: 1, ...body }),
+    });
+    const ref = { provider: 'ezquill', role: 'source', mediaId: 'm1' };
+    await run('manage_production', { projectId: 'p', action: 'record_take', nodeId: 's1', take: { files: [ref] } });
+    const take = sent.find((r) => r.path.endsWith('/versions')).body.content.take;
+    assert.equal(take.jobId, undefined);
+    assert.deepEqual(take.files, [ref]);
   });
 
   test('update_take goes through the server-side take patch', async () => {
@@ -89,6 +110,37 @@ describe('manage_production', () => {
     const req = sent.find((r) => r.method === 'PATCH');
     assert.match(req.path, /\/nodes\/s1\/versions\/v9\/take$/);
     assert.deepEqual(req.body, { status: 'accepted' });
+  });
+
+  // ezquill #544: attaching a file sends only the file, for the server to
+  // append under its lock. A take patch's `files` would replace the list.
+  test('update_take attaches a file with addFiles, passed through as sent', async () => {
+    const sent = stub({ 'PATCH /takes/v9': {} });
+    const ref = { provider: 'ezquill', role: 'source', mediaId: 'm1' };
+    await run('manage_production', { projectId: 'p', action: 'update_take', versionId: 'v9', patch: { addFiles: [ref] } });
+    assert.deepEqual(sent.find((r) => r.method === 'PATCH').body, { addFiles: [ref] });
+    await assert.rejects(
+      run('manage_production', {
+        projectId: 'p', action: 'update_take', versionId: 'v9',
+        patch: { addFiles: [{ provider: 'ezquill', role: 'source', mediaId: 'm1', url: 'https://signed' }] },
+      }),
+      (err) => err.detail.field === 'patch.addFiles[0].url'
+    );
+  });
+
+  test('update_record addFiles appends to a still without reading it first', async () => {
+    const ref = { provider: 'ezquill', role: 'still', mediaId: 'm1' };
+    const sent = stub({
+      'PATCH /production-records/r1': (body) => ({ id: 'r1', kind: 'still', data: { purpose: 'staging', files: body.addFiles } }),
+    });
+    const out = await run('manage_production', { projectId: 'p', action: 'update_record', recordId: 'r1', addFiles: [ref] });
+    assert.equal(sent.length, 1, 'no read: the list is extended on the server');
+    assert.deepEqual(sent[0].body, { addFiles: [ref] });
+    assert.deepEqual(out.files, [ref]);
+    await assert.rejects(
+      run('manage_production', { projectId: 'p', action: 'update_record', recordId: 'r1', addFiles: [ref], data: { notes: 'x' } }),
+      /not both/
+    );
   });
 
   test('update_record rebuilds data from the record, since PATCH replaces it whole', async () => {
@@ -174,7 +226,8 @@ describe('the take API, from an agent (ezquill epic #40)', () => {
     assert.deepEqual(Object.keys(schema().take.properties).sort(), TAKE.filter((k) => !SET_HERE.includes(k)).sort());
     // promptSource and promptRef retract a prompt (ezquill #446); the text
     // itself is never patchable.
-    const PATCH = ['status', 'note', 'verdictReason', 'review', 'audioChecks', 'voice', 'files', 'lastFrame',
+    // addFiles appends rather than replaces (ezquill #544).
+    const PATCH = ['status', 'note', 'verdictReason', 'review', 'audioChecks', 'voice', 'files', 'addFiles', 'lastFrame',
       'handoffFrame', 'modelActual', 'credits', 'promptSource', 'promptRef'];
     assert.deepEqual(Object.keys(schema().patch.properties).sort(), [...PATCH].sort());
   });
