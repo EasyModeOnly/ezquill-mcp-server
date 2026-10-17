@@ -180,7 +180,7 @@ const PROVIDERS = ['higgsfield', 'runway', 'veo', 'kling', 'elevenlabs', 'local'
 // A FILE can also be in ezQuill's own storage (epic #39, media.Providers in
 // the API). Not a generator, so it is not offered as a take's `tool`.
 const FILE_PROVIDERS = [...PROVIDERS, 'ezquill'];
-const ROLES = ['source', 'revoiced', 'final', 'last_frame', 'handoff_frame', 'still', 'audio', 'project', 'export'];
+const ROLES = ['source', 'revoiced', 'final', 'last_frame', 'handoff_frame', 'still', 'audio', 'project', 'export', 'document'];
 const REASONS = ['anatomy', 'eyes', 'identity', 'framing', 'order', 'props', 'wardrobe', 'text', 'beat', 'audio', 'model_swap', 'other'];
 const REVIEW_ITEMS = REASONS.filter((r) => !['audio', 'model_swap', 'other'].includes(r));
 
