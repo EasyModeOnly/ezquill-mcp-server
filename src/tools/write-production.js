@@ -10,12 +10,18 @@
  * Three rules this file keeps for the agent:
  * - **Record rejected takes too.** A rejection is paid for and it is where the
  *   lessons come from; a ledger of only accepted takes understates every cost.
- * - **The job id is the durable reference.** A CDN URL expires; always send the
- *   jobId, and a URL only as a convenience. Better still, when the agent has
- *   the file itself: request_upload → PUT → finalize_upload puts it in
- *   ezQuill's own storage (epic #39), and the take records a FileRef
- *   {provider: "ezquill", role, mediaId}. A signed URL from either end of that
- *   is temporary and is never recorded.
+ * - **A take needs a durable handle: the job id, or an uploaded file.** A CDN
+ *   URL expires; send the jobId whenever there is one, and a URL only as a
+ *   convenience. When the agent has the file itself, request_upload → PUT →
+ *   finalize_upload puts it in ezQuill's own storage (epic #39), and the take
+ *   records a FileRef {provider: "ezquill", role, mediaId} — which on its own
+ *   is enough to record a take with no job (ezquill #546). A signed URL from
+ *   either end of that is temporary and is never recorded.
+ * - **Attach a file with addFiles, never by resending the list.** `files` in a
+ *   patch REPLACES the take's list, so a list rebuilt from an earlier read
+ *   erases whatever the writer (or another agent) attached since. addFiles is
+ *   appended by the server under its row lock (ezquill #544); the same goes
+ *   for a still through update_record's addFiles.
  * - **A take's record is the compile's.** record_take fills the prompt, the
  *   generation parameters and the asset stamps from compile_prompt unless told
  *   otherwise, so an agent's take goes stale on a redesign exactly as the
@@ -298,7 +304,10 @@ const movable = {
 
 const takeSchema = closed(
   {
-    jobId: { type: 'string', description: 'Required: the durable reference to the clip.' },
+    jobId: {
+      type: 'string',
+      description: 'The generator job: the durable reference. Send it whenever there is one. Required unless files holds an uploaded (provider "ezquill") file.',
+    },
     tool: { type: 'string', enum: PROVIDERS },
     modelRequested: { type: 'string' },
     aspectRatio: { type: 'string' },
@@ -323,9 +332,8 @@ const takeSchema = closed(
     ...movable,
   },
   {
-    required: ['jobId'],
     description:
-      'record_take. prompt, params, startImage and asset stamps default to the shot\'s compile at the time of ' +
+      'record_take. Needs jobId, or an uploaded file (provider "ezquill") in files. prompt, params, startImage and asset stamps default to the shot\'s compile at the time of ' +
       'recording — so record a take when you submit it. For a take generated earlier, set backfill: true.',
   }
 );
@@ -333,6 +341,19 @@ const takeSchema = closed(
 const patchSchema = closed(
   {
     ...movable,
+    files: {
+      type: 'array',
+      items: fileRefSchema,
+      description: 'REPLACES the whole list. To attach a file, use addFiles.',
+    },
+    // Appended by the server to the list it holds locked (ezquill #544), so a
+    // file attached meanwhile — by the writer in the app, or another agent —
+    // is kept. Never beside `files`.
+    addFiles: {
+      type: 'array',
+      items: fileRefSchema,
+      description: 'Files to ADD to the take (e.g. a finalized upload). Kept beside what is there; a repeat is dropped.',
+    },
     // A prompt can be RETRACTED, never written afterwards (ezquill #446): a
     // take backfilled with a pointer string in `prompt` and wasEdited set can
     // be put right without re-recording it.
@@ -348,7 +369,8 @@ const patchSchema = closed(
   },
   {
     description:
-      'update_take: each field present REPLACES that field; absent fields are left alone. The prompt text itself cannot be patched.',
+      'update_take: each field present REPLACES that field, except addFiles, which appends; absent fields are ' +
+      'left alone. The prompt text itself cannot be patched.',
   }
 );
 
@@ -359,10 +381,10 @@ const defined = [
       'Record what was produced for a script with digital content creation on. record_take: one generation of a shot ' +
       '(accepted, rejected or pending — record rejected takes too); set backfill: true for a take generated ' +
       'earlier, so it is not stamped with today\'s prompt. update_take (by versionId alone): its verdict, reason, ' +
-      'review marks, audio checks, voice, files or the model the tool actually used. A refused field is named ' +
+      'review marks, audio checks, voice, files (patch.addFiles attaches one; patch.files replaces them all) or the model the tool actually used. A refused field is named ' +
       'by its path in the error\'s `field`. record_still / ' +
       'record_cue / record_cut: a generated image, a sound cue on a shot, or an episode\'s edit (trims, ' +
-      'loudness, export, publishes). update_record / delete_record. set_status: a shot\'s production ' +
+      'loudness, export, publishes). update_record (addFiles attaches an image to a still) / delete_record. set_status: a shot\'s production ' +
       'status (planned, prompting, generating, review, locked, in_cut, published, blocked). ' +
       'set_shot: a shot\'s framing, camera, left-to-right order, length, prompt action or start plan — ' +
       'what compile_prompt reads. set_prompt_template: the show\'s house template (style line, standing ' +
@@ -380,7 +402,8 @@ const defined = [
       'request_upload (contentType, bytes, filename): store a file you HAVE (a downloaded clip, a still) in ezQuill, ' +
       'so the take stops depending on a CDN link that rotates. It returns a signed url and headers: PUT the bytes ' +
       'there with exactly those headers, then finalize_upload (mediaId), then record it as the FileRef ' +
-      '{provider: "ezquill", role, mediaId} in record_take / update_take. Never record the signed url.',
+      '{provider: "ezquill", role, mediaId} in record_take take.files, update_take patch.addFiles, or update_record ' +
+      'addFiles for a still. Never record the signed url. A take with an uploaded file needs no jobId.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -395,6 +418,14 @@ const defined = [
           description: 'update_take: the take, as returned by record_take or get_production. Enough on its own; nodeId is optional.',
         },
         recordId: { type: 'string', description: 'update_record / delete_record.' },
+        addFiles: {
+          type: 'array',
+          items: fileRefSchema,
+          description:
+            'update_record, stills only: files to ADD to the still, appended by the server and kept beside what is ' +
+            'there. Use this, not data.files, to attach an image: data is rebuilt from a read and would drop a file ' +
+            'attached meanwhile. Instead of data, not with it.',
+        },
         take: takeSchema,
         patch: patchSchema,
         backfill: {
@@ -472,8 +503,16 @@ const defined = [
       switch (action) {
         case 'record_take': {
           need('nodeId', 'take');
-          if (!args.take.jobId) {
-            throw new ToolError(Code.REQUEST_FAILED, 'record_take needs take.jobId — the durable reference to the clip.');
+          // A take needs a handle that outlives a CDN link (ezquill #546): the
+          // generator's job, or a file uploaded to ezQuill. The API refuses
+          // one with neither; said here first so the error names both ways out.
+          if (!hasHandle(args.take)) {
+            throw new ToolError(
+              Code.REQUEST_FAILED,
+              'record_take needs take.jobId — the durable reference to the clip — or, with no job, the clip ' +
+                'uploaded (request_upload → finalize_upload) and recorded in take.files as {provider: "ezquill", role, mediaId}.',
+              { field: 'take.jobId' }
+            );
           }
           checkStoredFiles(args.take, 'take');
           if (args.backfill) return recordBackfilledTake(projectId, args.nodeId, args.take);
@@ -579,7 +618,22 @@ const defined = [
         }
 
         case 'update_record': {
-          need('recordId', 'data');
+          need('recordId');
+          if (args.addFiles !== undefined) {
+            if (args.data !== undefined) {
+              throw new ToolError(Code.REQUEST_FAILED, 'update_record takes data or addFiles, not both.');
+            }
+            checkStoredFiles({ files: args.addFiles }, 'addFiles');
+            // Appended by the SERVER to the still it holds locked (ezquill
+            // #544). Rebuilding data.files from a read, as below, would erase
+            // an image the writer attached in between.
+            const record = await call(`/projects/${projectId}/production-records/${args.recordId}`, {
+              method: 'PATCH',
+              body: { addFiles: args.addFiles },
+            });
+            return { updated: { id: record.id, kind: record.kind }, files: record.data?.files ?? [] };
+          }
+          need('data');
           // PATCH replaces `data` WHOLE, so it is rebuilt from the record as it
           // stands with the change laid over it — sending only the new keys
           // would erase every other field of the still, cue or cut.
@@ -784,7 +838,8 @@ async function requestUpload(projectId, args) {
       `or drop one and the PUT is refused. ` +
       `2. Call manage_production finalize_upload with mediaId "${mediaId}". ` +
       `3. Record it on the take: a FileRef {provider: "ezquill", role: "source" (or still, last_frame, ` +
-      `handoff_frame, audio…), mediaId: "${mediaId}"} in record_take take.files (or update_take patch.files). ` +
+      `handoff_frame, audio…), mediaId: "${mediaId}"} in record_take take.files, or on a take already recorded ` +
+      `update_take patch.addFiles (never patch.files, which replaces the list). A still: update_record addFiles. ` +
       'Do NOT record this url anywhere: it is a signed link that stops working within minutes.',
   };
 }
@@ -816,7 +871,8 @@ async function finalizeUpload(projectId, mediaId) {
     fileRef: { provider: 'ezquill', role: 'source', mediaId: media?.id ?? mediaId },
     note:
       'Stored. Record it with this fileRef (set role to what the file is: source, still, last_frame, ' +
-      'handoff_frame, audio…) in record_take take.files or update_take patch.files.',
+      'handoff_frame, audio…) in record_take take.files, update_take patch.addFiles, or update_record addFiles ' +
+      'for a still. addFiles appends, so a file attached meanwhile is kept; patch.files would replace the list.',
   };
 }
 
@@ -832,6 +888,16 @@ function storageError(err) {
 }
 
 /**
+ * Whether a take names something that outlives a CDN link (ezquill #546):
+ * the generator's job, or a file in ezQuill's storage. Mirrors Take.HasHandle
+ * in the API, which is the gate; this only words the refusal first.
+ */
+function hasHandle(take) {
+  if (typeof take?.jobId === 'string' && take.jobId.trim()) return true;
+  return Array.isArray(take?.files) && take.files.some((f) => f?.provider === 'ezquill' && f.mediaId);
+}
+
+/**
  * The API checks a FileRef's shape (media.FileRef.Validate); this catches the
  * one mistake it cannot: recording an ezquill file BY its signed url. That url
  * is valid for minutes, so a take holding it would lose the clip without
@@ -841,6 +907,7 @@ function checkStoredFiles(take, at) {
   if (!take || typeof take !== 'object') return;
   const refs = [
     ...(Array.isArray(take.files) ? take.files.map((f, i) => [f, `${at}.files[${i}]`]) : []),
+    ...(Array.isArray(take.addFiles) ? take.addFiles.map((f, i) => [f, `${at}.addFiles[${i}]`]) : []),
     [take.lastFrame, `${at}.lastFrame`],
     [take.handoffFrame, `${at}.handoffFrame`],
     [take.startImage?.frame, `${at}.startImage.frame`],

@@ -186,6 +186,7 @@
     "manage_production": {
       "params": [
         "action",
+        "addFiles",
         "backfill",
         "bytes",
         "contentType",

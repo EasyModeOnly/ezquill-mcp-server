@@ -82,15 +82,14 @@ Changing things:
   ones. list_entities reports them as "templates" and get_entity as
   "template": fill those keys, and do not invent profile keys the project
   never declared.
-- Producing a show: call compile_prompt for a shot and submit
-  exactly its "prompt" (or record your edit), then record the result with
-  manage_production record_take — rejected takes as well as accepted ones,
-  with a verdictReason. Send the jobId (CDN URLs expire). With the file:
-  request_upload, PUT, finalize_upload, record its mediaId; never a signed
-  URL. Set a shot's status with set_status, and
-  read what is next or blocked with get_production. Never create research
-  entities to hold production state: takes, stills, cues and cuts have their
-  own records.
+- Producing a show: call compile_prompt for a shot and submit exactly its
+  "prompt" (or record your edit), then record the result with manage_production
+  record_take — rejected takes too, with a verdictReason. Send the jobId if
+  there is one (CDN URLs expire), or upload the file: request_upload, PUT,
+  finalize_upload, record its mediaId; never a signed URL. Set a shot's status
+  with set_status, and read what is next or blocked with get_production. Never
+  create research entities to hold production state: takes, stills, cues and
+  cuts have their own records.
 - When a compile states something wrong about a shot — the camera, who is
   left of whom, the length, script notes in the SHOT block — fix the shot with
   manage_production set_shot, not with a hand edit: the compiler states only
