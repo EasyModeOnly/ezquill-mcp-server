@@ -566,3 +566,167 @@ describe('a script with production switched off', () => {
     );
   });
 });
+
+// Files in ezQuill's own storage (ezquill epic #39, task #421): so a take's
+// clip stops depending on a generator's CDN link.
+describe('uploading a file, from an agent (ezquill #421)', () => {
+  const ticket = {
+    media: { id: 'm1', status: 'pending', contentType: 'video/mp4', filename: "sal's take.mp4", bytes: 1234 },
+    url: 'https://storage.googleapis.com/b/incoming/m1?X-Goog-Signature=abc&x=1',
+    method: 'PUT',
+    headers: { 'Content-Type': 'video/mp4', 'x-goog-content-length-range': '0,1234' },
+    expiresAt: '2026-10-17T12:15:00Z',
+  };
+  const fail = (status, error) => async () => ({
+    ok: false, status, statusText: 'x', json: async () => ({ error }),
+  });
+
+  test('request_upload signs the PUT and hands back everything needed to send it', async () => {
+    const sent = stub({ 'POST /media/uploads': ticket });
+    const out = await run('manage_production', {
+      projectId: 'p', action: 'request_upload', contentType: 'video/mp4', bytes: 1234, filename: "sal's take.mp4", scope: 'series',
+    });
+    assert.equal(sent[0].path, '/api/v1/projects/p/media/uploads');
+    assert.deepEqual(sent[0].body, { contentType: 'video/mp4', bytes: 1234, filename: "sal's take.mp4", scope: 'series' });
+    assert.equal(out.mediaId, 'm1');
+    assert.equal(out.url, ticket.url);
+    assert.equal(out.method, 'PUT');
+    assert.deepEqual(out.headers, ticket.headers);
+    assert.equal(out.expiresAt, ticket.expiresAt);
+    // Every signed header, the url quoted (it carries &), and a quote in the
+    // filename escaped for the shell.
+    assert.match(out.curl, /^curl .*-X PUT --data-binary @'sal'\\''s take\.mp4'/);
+    assert.ok(out.curl.includes("-H 'Content-Type: video/mp4'"));
+    assert.ok(out.curl.includes("-H 'x-goog-content-length-range: 0,1234'"));
+    assert.ok(out.curl.endsWith(`'${ticket.url}'`));
+    assert.match(out.next, /finalize_upload/);
+    assert.match(out.next, /provider: "ezquill"/);
+    assert.match(out.next, /Do NOT record this url/);
+  });
+
+  test('request_upload omits scope when not given', async () => {
+    const sent = stub({ 'POST /media/uploads': ticket });
+    await run('manage_production', { projectId: 'p', action: 'request_upload', contentType: 'image/png', bytes: 9, filename: 'a.png' });
+    assert.equal('scope' in sent[0].body, false);
+  });
+
+  test('request_upload needs the type, size and name', async () => {
+    stub({});
+    await assert.rejects(
+      run('manage_production', { projectId: 'p', action: 'request_upload', contentType: 'video/mp4', filename: 'a.mp4' }),
+      /request_upload needs bytes/
+    );
+  });
+
+  test('a full allowance is PLAN_LIMIT with the API\'s own words, not a missing scope', async () => {
+    const message = 'Your storage is full: 5.0 GB of 5.0 GB used. Delete files or upgrade to Premium.';
+    globalThis.fetch = fail(403, { code: 'plan_limit', message });
+    await assert.rejects(
+      run('manage_production', { projectId: 'p', action: 'request_upload', contentType: 'video/mp4', bytes: 1, filename: 'a.mp4' }),
+      (err) => err.code === 'PLAN_LIMIT' && err.message === message
+    );
+  });
+
+  test('an upload refusal is not reported as production being off', async () => {
+    let projectRead = false;
+    globalThis.fetch = async (url) => {
+      if (new URL(url).pathname.endsWith('/projects/p')) {
+        projectRead = true;
+        return { ok: true, status: 200, json: async () => ({ title: 'T', writingType: 'script', production: false }) };
+      }
+      return { ok: false, status: 400, statusText: 'x', json: async () => ({ error: { field: 'contentType', message: 'contentType: must be one of …' } }) };
+    };
+    await assert.rejects(
+      run('manage_production', { projectId: 'p', action: 'request_upload', contentType: 'image/svg+xml', bytes: 1, filename: 'a.svg' }),
+      (err) => err.code !== 'PRODUCTION_OFF' && err.detail.field === 'contentType' && /must be one of/.test(err.message)
+    );
+    assert.equal(projectRead, false);
+  });
+
+  test('storage switched off in the deployment is not "search unavailable"', async () => {
+    globalThis.fetch = fail(503, { code: 'service_unavailable', message: 'file storage is not enabled on this server' });
+    await assert.rejects(
+      run('manage_production', { projectId: 'p', action: 'request_upload', contentType: 'video/mp4', bytes: 1, filename: 'a.mp4' }),
+      (err) => err.code === 'REQUEST_FAILED' && /file storage is not enabled/.test(err.message)
+    );
+  });
+
+  test('finalize_upload returns the ready file and the FileRef to record', async () => {
+    const ready = { id: 'm1', status: 'ready', contentType: 'video/mp4', bytes: 1234 };
+    const sent = stub({ 'POST /media/m1/finalize': ready });
+    const out = await run('manage_production', { projectId: 'p', action: 'finalize_upload', mediaId: 'm1' });
+    assert.equal(sent[0].path, '/api/v1/projects/p/media/m1/finalize');
+    assert.equal(sent[0].method, 'POST');
+    assert.deepEqual(out.media, ready);
+    assert.deepEqual(out.fileRef, { provider: 'ezquill', role: 'source', mediaId: 'm1' });
+  });
+
+  test('finalize before the bytes arrive says so, and is not a stale-content conflict', async () => {
+    globalThis.fetch = fail(409, { code: 'conflict', message: 'the file has not finished uploading yet' });
+    await assert.rejects(
+      run('manage_production', { projectId: 'p', action: 'finalize_upload', mediaId: 'm1' }),
+      (err) => err.code === 'UPLOAD_INCOMPLETE' && /have not arrived yet/.test(err.message)
+        && /the file has not finished uploading yet/.test(err.message) && err.detail.mediaId === 'm1'
+    );
+  });
+
+  test('a size mismatch passes the API message on and says the upload is gone', async () => {
+    globalThis.fetch = fail(400, { code: 'validation_error', field: 'bytes', message: '1000 bytes arrived, but 1234 were declared' });
+    await assert.rejects(
+      run('manage_production', { projectId: 'p', action: 'finalize_upload', mediaId: 'm1' }),
+      (err) => err.message.startsWith('1000 bytes arrived, but 1234 were declared') && /request_upload again/.test(err.message)
+        && err.detail.field === 'bytes'
+    );
+  });
+
+  test('storage full at finalize is PLAN_LIMIT, worded by the API', async () => {
+    const message = 'This file would take the project owner past their 5 GB of storage.';
+    globalThis.fetch = fail(403, { code: 'plan_limit', message });
+    await assert.rejects(
+      run('manage_production', { projectId: 'p', action: 'finalize_upload', mediaId: 'm1' }),
+      (err) => err.code === 'PLAN_LIMIT' && err.message === message
+    );
+  });
+
+  test('a FileRef may name an ezquill file by mediaId', () => {
+    const file = tool('manage_production').inputSchema.properties.take.properties.files.items;
+    assert.ok(file.properties.provider.enum.includes('ezquill'));
+    assert.ok(file.properties.mediaId);
+    // A file's provider, not a generator: a take's tool stays the generators.
+    assert.ok(!tool('manage_production').inputSchema.properties.take.properties.tool.enum.includes('ezquill'));
+  });
+
+  test('record_take records an ezquill FileRef as given', async () => {
+    const sent = stub({
+      'POST /api/video/compile': compiled,
+      'POST /versions': (body) => ({ id: 'v9', versionNumber: 1, ...body }),
+    });
+    const ref = { provider: 'ezquill', role: 'source', mediaId: 'm1' };
+    await run('manage_production', {
+      projectId: 'p', action: 'record_take', nodeId: 's1',
+      take: { jobId: 'job-1', files: [ref], lastFrame: { provider: 'ezquill', role: 'last_frame', mediaId: 'm2' } },
+    });
+    const take = sent.find((r) => r.path.endsWith('/versions')).body.content.take;
+    assert.deepEqual(take.files, [ref]);
+    assert.equal(take.lastFrame.mediaId, 'm2');
+  });
+
+  test('an ezquill FileRef is never recorded by its signed url, and needs its mediaId', async () => {
+    const sent = stub({});
+    await assert.rejects(
+      run('manage_production', {
+        projectId: 'p', action: 'record_take', nodeId: 's1',
+        take: { jobId: 'j', files: [{ provider: 'ezquill', role: 'source', mediaId: 'm1', url: 'https://signed' }] },
+      }),
+      (err) => err.detail.field === 'take.files[0].url' && /expires/.test(err.message)
+    );
+    await assert.rejects(
+      run('manage_production', {
+        projectId: 'p', action: 'update_take', versionId: 'v9',
+        patch: { handoffFrame: { provider: 'ezquill', role: 'handoff_frame' } },
+      }),
+      (err) => err.detail.field === 'patch.handoffFrame.mediaId'
+    );
+    assert.equal(sent.length, 0, 'refused before anything was sent');
+  });
+});
