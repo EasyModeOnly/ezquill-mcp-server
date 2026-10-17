@@ -442,6 +442,33 @@ describe('shot fields, the house template and rules, from an agent (ezquill #431
     assert.equal(out.note, undefined);
   });
 
+  // ezquill #585: NO-TEXT is the compiler's line, not a bible rule, so its
+  // snapshot comes from the shot's compile.
+  test('override_rule on NO-TEXT snapshots the line the shot compiles', async () => {
+    const line = 'No on-screen text, no signage text.';
+    const sent = stub({
+      'POST /api/video/compile': { ...compiled, blocks: [{ name: 'NO-TEXT', text: line }], overridden: [] },
+      'POST /shot/overrides': (body) => ({ overrides: [body] }),
+    });
+    await run('manage_production', {
+      projectId: 'p', action: 'override_rule', nodeId: 's1', rule: { block: 'no-text' },
+      reason: 'the banner is the joke', replacement: "The banner reads exactly 'HOCK HEAVEN'.",
+    });
+    assert.deepEqual(sent.find((r) => r.path.endsWith('/api/video/compile')).body, { projectId: 'p', nodeId: 's1' });
+    assert.deepEqual(sent.at(-1).body, {
+      block: 'NO-TEXT', textAtOverride: line, reason: 'the banner is the joke', replacement: "The banner reads exactly 'HOCK HEAVEN'.",
+    });
+  });
+
+  test('override_rule on NO-TEXT finds the line an earlier override already took out', async () => {
+    const sent = stub({
+      'POST /api/video/compile': { ...compiled, blocks: [], overridden: [{ rule: { block: 'NO-TEXT', text: 'old line' } }] },
+      'POST /shot/overrides': (body) => ({ overrides: [body] }),
+    });
+    await run('manage_production', { projectId: 'p', action: 'override_rule', nodeId: 's1', rule: { block: 'NO-TEXT' }, reason: 'r' });
+    assert.equal(sent.at(-1).body.textAtOverride, 'old line');
+  });
+
   test('override_rule asks which rule when the block holds several, and lists them when none match', async () => {
     stub({ 'GET /projects/p': { metadata: { showBible: { rules: [{ block: 'AUDIO', text: 'no music' }, { block: 'AUDIO', text: 'no SFX' }] } } } });
     await assert.rejects(

@@ -49,7 +49,10 @@ export const tools = [
             'Shortform video only: what the video generator needs to draw this, which every ' +
             "shot's prompt is compiled from. Character: elementId, look, voiceId, voiceName. " +
             'Set: elementId, plates, geography, noSpeech, noSpeechReason. Prop: elementId, ' +
-            'appearance, neverBecomes (array). elementId is the reference asset (Higgsfield ' +
+            'appearance, neverBecomes (array). Any set, prop or item may add allowedText (string or array): ' +
+            'the exact lettering it shows, e.g. "HOCK HEAVEN" — the prompt then allows that text and no other. ' +
+            'An item linked present with elementId or appearance is compiled as a prop. ' +
+            'elementId is the reference asset (Higgsfield ' +
             'Element, Runway reference, Kling subject). NEVER put these in profile — the ' +
             'compiler does not read it. Merged with what is there; an empty value clears the ' +
             "edit and falls back to the imported bible's.",
@@ -206,7 +209,9 @@ export const tools = [
         entityId: { type: 'string' },
         role: {
           type: 'string',
-          description: 'pov, present, setting, mentioned, referenced, cited, sourced.',
+          description:
+            'pov, present, setting, mentioned, referenced, cited, sourced. In a shot, background: extras ' +
+            'described in the prompt but not counted as cast, not in ANTI-MERGE and not told to keep quiet.',
         },
       },
       required: ['projectId', 'action', 'nodeId', 'entityId', 'role'],
