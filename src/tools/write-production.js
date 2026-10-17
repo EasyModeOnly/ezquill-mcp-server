@@ -395,6 +395,9 @@ const defined = [
       'frame). NO FADES is a template block. override_rule: one shot (nodeId) deliberately breaks a rule — name it by rule.block ' +
       '(+ rule.text when its owner has several in that block) and entityId / episodeId as for add_rule; give ' +
       'a reason, and a replacement to have the prompt say what holds instead. clear_override undoes it. ' +
+      'NO-TEXT (the compiler\'s "no signage text, no lettering…" line) overrides the same way, by block alone — ' +
+      'but for a sign or banner the shot must show, prefer production.allowedText on that entity, which every ' +
+      'shot it is in then allows. ' +
       'mark_dialogue: make a shot\'s line its DIALOGUE — quote the line exactly as it stands (e.g. ' +
       'SAL: "And slop needs love too."); it becomes its own quote-block paragraph, its NAME: label and ' +
       'quotation marks dropped (the compiler writes "SAL says: …"), and speakerId links who says it. ' +
@@ -1048,12 +1051,35 @@ export function mergeCut(stored, given) {
 }
 
 /**
+ * The compiler's own NO-TEXT line, as this shot compiles it (ezquill #585).
+ *
+ * No bible holds it, so it is read off the compile: the block when it is in
+ * the prompt, the override's rule when one already took it out. Its wording
+ * depends on the shot (an entity in frame with allowedText changes it), which
+ * is why it cannot be a constant here.
+ */
+async function compilerNoText(projectId, nodeId) {
+  const compiled = await call('/api/video/compile', { app: true, method: 'POST', body: { projectId, nodeId } });
+  const text =
+    compiled?.blocks?.find((b) => b.name === 'NO-TEXT')?.text ??
+    compiled?.overridden?.find((o) => o.rule?.block === 'NO-TEXT')?.rule?.text;
+  if (!text) {
+    throw new ToolError(
+      Code.REQUEST_FAILED,
+      'This shot compiles no NO-TEXT line to override. If an entity in frame should be lettered, give it production.allowedText instead.'
+    );
+  }
+  return { block: 'NO-TEXT', text };
+}
+
+/**
  * The rule an override names, read from where it lives: the entity, the
  * episode, or the show. By block alone when its owner has one rule there; with
  * rule.text when it has several, so an agent never overrides the wrong one.
  */
-async function findRule(projectId, { entityId, episodeId }, wanted) {
+async function findRule(projectId, { entityId, episodeId, nodeId }, wanted) {
   const block = String(wanted.block ?? '').trim().toUpperCase();
+  if (block === 'NO-TEXT' && !entityId && !episodeId) return compilerNoText(projectId, nodeId);
   let rules;
   let owner;
   if (episodeId) {
