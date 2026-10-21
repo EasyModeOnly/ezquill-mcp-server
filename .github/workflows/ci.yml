@@ -1,5 +1,12 @@
 name: CI
 
+# Also runs on the local Forgejo (http://192.168.8.122:3000), this repo's
+# primary home, from a BYTE-FOR-BYTE copy in .forgejo/workflows/ci.yml (ezQuill
+# epic #53). After editing this file, run `scripts/check-forgejo-workflows.sh
+# --fix` and commit the copy; the last step fails if they drift. Only workflows
+# copied there run on Forgejo, which keeps publish.yml/deploy.yml on GitHub —
+# the push mirror. The home runners are host-mode and share one Docker daemon.
+
 on:
   push:
     branches: [main]
@@ -26,3 +33,7 @@ jobs:
       # The image is part of the deliverable, so a Dockerfile that no longer
       # builds should fail here rather than at deploy time.
       - run: docker build -t ezquill-mcp-server:ci .
+
+      # .forgejo/workflows/ci.yml must stay a byte-for-byte copy of this file
+      # (ezQuill epic #53): see the script for why it cannot be a symlink.
+      - run: bash scripts/check-forgejo-workflows.sh
