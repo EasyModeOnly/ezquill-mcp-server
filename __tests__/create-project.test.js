@@ -14,20 +14,38 @@ const run = (name, args) => withRequest({ token: 't' }, () => tool(name).handler
 /** The contract GET /writing-types serves. */
 const REGISTRY = {
   writingTypes: [
-    {
-      key: 'novel',
-      levels: [
-        { key: 'part', label: 'Part', pluralLabel: 'Parts', children: ['chapter'], carriesProse: false, numbered: true },
-        { key: 'chapter', label: 'Chapter', pluralLabel: 'Chapters', children: ['scene'], carriesProse: true, numbered: true },
-        { key: 'scene', label: 'Scene', pluralLabel: 'Scenes', children: [], carriesProse: true, numbered: false },
-      ],
-      plantedLevels: ['part', 'chapter'],
-    },
-    {
-      key: 'blog',
-      levels: [{ key: 'post', label: 'Post', pluralLabel: 'Posts', children: [], carriesProse: true, numbered: false }],
-      plantedLevels: ['post'],
-    },
+    // A story: its shape is its length (ezquill epic #55). A short story is
+    // scenes only; the entry's own levels are the default variant's (a novel).
+    (() => {
+      const part = { key: 'part', label: 'Part', pluralLabel: 'Parts', children: ['chapter'], carriesProse: false, numbered: true };
+      const chapter = { key: 'chapter', label: 'Chapter', pluralLabel: 'Chapters', children: ['scene'], carriesProse: true, numbered: true };
+      const scene = { key: 'scene', label: 'Scene', pluralLabel: 'Scenes', children: [], carriesProse: true, numbered: false };
+      const novel = [part, chapter, scene];
+      const v = (shape, levels, plantedLevels) => ({ shape, production: false, levels, plantedLevels });
+      return {
+        key: 'story',
+        levels: novel,
+        plantedLevels: ['part', 'chapter'],
+        variants: [
+          v('novel', novel, ['part', 'chapter']),
+          v('novella', novel, ['part', 'chapter']),
+          v('short-story', [scene], ['scene']),
+        ],
+      };
+    })(),
+    // A document: its shape is its form, and it has no default.
+    (() => {
+      const post = { key: 'post', label: 'Post', pluralLabel: 'Posts', children: [], carriesProse: true, numbered: false };
+      const chapter = { key: 'chapter', label: 'Chapter', pluralLabel: 'Chapters', children: [], carriesProse: true, numbered: true };
+      const v = (shape, levels, plantedLevels) => ({ shape, production: false, levels, plantedLevels });
+      return {
+        key: 'document',
+        levels: [chapter],
+        plantedLevels: ['chapter'],
+        variants: [v('paper', [chapter], ['chapter']), v('post', [post], ['post'])],
+      };
+    })(),
+    { key: 'poetry', levels: [{ key: 'poem', label: 'Poem', children: [], carriesProse: true }], plantedLevels: ['poem'] },
     // A script: its levels are its shape's, plus shots with production on
     // (ezquill epic #48). The entry's own levels are the default variant's.
     (() => {
@@ -88,7 +106,7 @@ const realFetch = globalThis.fetch;
 beforeEach(() => resetWritingTypes());
 afterEach(() => { globalThis.fetch = realFetch; });
 
-const created = { id: 'p1', title: 'Harbour', writingType: 'novel', status: 'planning' };
+const created = { id: 'p1', title: 'Harbour', writingType: 'story', status: 'planning' };
 const happy = () => ({
   'GET /writing-types': REGISTRY,
   'POST /projects': created,
@@ -103,7 +121,7 @@ describe('create_project — refusals happen before anything exists', () => {
     const sent = stub(happy());
     await assert.rejects(
       () => run('create_project', {
-        title: 'Harbour', writingType: 'novel',
+        title: 'Harbour', writingType: 'story',
         structure: [{ title: 'Part One', nodeType: 'part', children: [{ title: 'X', nodeType: 'book' }] }],
       }),
       (err) => {
@@ -118,7 +136,7 @@ describe('create_project — refusals happen before anything exists', () => {
   test('a missing node type is refused, never defaulted', async () => {
     const sent = stub(happy());
     await assert.rejects(
-      () => run('create_project', { title: 'H', writingType: 'novel', structure: [{ title: 'One' }] }),
+      () => run('create_project', { title: 'H', writingType: 'story', structure: [{ title: 'One' }] }),
       (err) => err.code === Code.UNKNOWN_NODE_TYPE
     );
     assert.ok(!sent.some((r) => r.method === 'POST'));
@@ -127,7 +145,7 @@ describe('create_project — refusals happen before anything exists', () => {
   test('a level from ANOTHER writing type is refused', async () => {
     stub(happy());
     await assert.rejects(
-      () => run('create_project', { title: 'H', writingType: 'blog', structure: [{ title: 'C', nodeType: 'chapter' }] }),
+      () => run('create_project', { title: 'H', writingType: 'document', shape: 'post', structure: [{ title: 'C', nodeType: 'chapter' }] }),
       (err) => err.code === Code.UNKNOWN_NODE_TYPE
     );
   });
@@ -136,16 +154,16 @@ describe('create_project — refusals happen before anything exists', () => {
     const sent = stub(happy());
     const structure = Array.from({ length: MAX_NODES + 1 }, (_, i) => ({ title: `P${i}`, nodeType: 'post' }));
     await assert.rejects(
-      () => run('create_project', { title: 'H', writingType: 'blog', structure }),
+      () => run('create_project', { title: 'H', writingType: 'document', shape: 'post', structure }),
       (err) => err.detail?.max === MAX_NODES
     );
     assert.ok(!sent.some((r) => r.method === 'POST'));
   });
 
   test(`exactly ${MAX_NODES} nodes is allowed`, async () => {
-    stub({ ...happy(), 'POST /projects': { ...created, writingType: 'blog' } });
+    stub({ ...happy(), 'POST /projects': { ...created, writingType: 'document', shape: 'post' } });
     const structure = Array.from({ length: MAX_NODES }, (_, i) => ({ title: `P${i}`, nodeType: 'post' }));
-    const result = await run('create_project', { title: 'H', writingType: 'blog', structure });
+    const result = await run('create_project', { title: 'H', writingType: 'document', shape: 'post', structure });
     assert.equal(result.created.length, MAX_NODES);
   });
 });
@@ -154,16 +172,18 @@ describe('create_project — what is sent', () => {
   test('the project body carries only CreateInput fields', async () => {
     // DisallowUnknownFields: an extra key is a 400.
     const sent = stub(happy());
-    await run('create_project', { title: 'Harbour', writingType: 'novel', synopsis: 'S', genre: 'G', structure: [] });
+    await run('create_project', { title: 'Harbour', writingType: 'story', synopsis: 'S', genre: 'G', structure: [] });
     const post = sent.find((r) => r.method === 'POST' && r.path.endsWith('/projects'));
-    assert.deepEqual(Object.keys(post.body).sort(), ['genre', 'synopsis', 'title', 'writingType']);
+    // A story's shape is its length, defaulted; it has no production switch.
+    assert.deepEqual(Object.keys(post.body).sort(), ['genre', 'shape', 'synopsis', 'title', 'writingType']);
+    assert.equal(post.body.shape, 'novel');
     assert.ok(!sent.some((r) => r.path.endsWith('/batch')), 'no structure, no batch');
   });
 
   test('parents precede children and children name them', async () => {
     const sent = stub(happy());
     await run('create_project', {
-      title: 'Harbour', writingType: 'novel',
+      title: 'Harbour', writingType: 'story',
       structure: [
         { title: 'Part One', nodeType: 'part', children: [
           { title: 'Ch 1', nodeType: 'chapter' }, { title: 'Ch 2', nodeType: 'chapter' },
@@ -190,14 +210,14 @@ describe('create_project — what is sent', () => {
   test('a numbered level may be untitled; an unnumbered one may not', async () => {
     const sent = stub(happy());
     await run('create_project', {
-      title: 'Harbour', writingType: 'novel',
+      title: 'Harbour', writingType: 'story',
       structure: [{ nodeType: 'part', children: [{ nodeType: 'chapter' }, { title: '  ', nodeType: 'chapter' }] }],
     });
     const nodes = sent.find((r) => r.path.endsWith('/batch')).body.nodes;
     assert.deepEqual(nodes.map((n) => n.title), ['', '', '']);
 
     await assert.rejects(
-      () => run('create_project', { title: 'H', writingType: 'blog', structure: [{ nodeType: 'post' }] }),
+      () => run('create_project', { title: 'H', writingType: 'document', shape: 'post', structure: [{ nodeType: 'post' }] }),
       /needs a title/
     );
   });
@@ -206,7 +226,7 @@ describe('create_project — what is sent', () => {
     // Its absence is what declares a container.
     const sent = stub(happy());
     await run('create_project', {
-      title: 'Harbour', writingType: 'novel',
+      title: 'Harbour', writingType: 'story',
       structure: [{ title: 'Part One', nodeType: 'part', children: [{ title: 'Ch 1', nodeType: 'chapter' }] }],
     });
     const [part, chapter] = sent.find((r) => r.path.endsWith('/batch')).body.nodes;
@@ -217,7 +237,7 @@ describe('create_project — what is sent', () => {
   test('the result carries levels, plantedLevels and the project URL', async () => {
     process.env.EZQUILL_APP_BASE_URL = 'https://dev.ezquill.com';
     stub(happy());
-    const result = await run('create_project', { title: 'Harbour', writingType: 'novel' });
+    const result = await run('create_project', { title: 'Harbour', writingType: 'story' });
     delete process.env.EZQUILL_APP_BASE_URL;
     assert.equal(result.project.id, 'p1');
     assert.deepEqual(result.plantedLevels, ['part', 'chapter']);
@@ -230,7 +250,7 @@ describe('create_project — what is sent', () => {
     stub({ ...happy(), 'POST /batch': { fail: 400 } });
     await assert.rejects(
       () => run('create_project', {
-        title: 'Harbour', writingType: 'novel', structure: [{ title: 'Ch', nodeType: 'chapter' }],
+        title: 'Harbour', writingType: 'story', structure: [{ title: 'Ch', nodeType: 'chapter' }],
       }),
       (err) => {
         assert.equal(err.code, Code.STRUCTURE_FAILED);
@@ -241,14 +261,14 @@ describe('create_project — what is sent', () => {
     );
   });
 
-  test('the writing type is a closed enum in the schema', () => {
+  test('the writing type is a closed enum of the four types', () => {
     const schema = tool('create_project').inputSchema;
-    assert.equal(schema.properties.writingType.enum.length, 9);
-    assert.ok(!schema.properties.writingType.enum.includes('fiction'));
-    // Both became `script` (ezquill epic #48), and the API refuses them new.
-    assert.ok(schema.properties.writingType.enum.includes('script'));
-    assert.ok(!schema.properties.writingType.enum.includes('screenplay'));
-    assert.ok(!schema.properties.writingType.enum.includes('shortform-video'));
+    // ezquill epic #55: nine types became four; epic #48 had already folded
+    // screenplay and shortform video into script.
+    assert.deepEqual([...schema.properties.writingType.enum].sort(), ['document', 'poetry', 'script', 'story']);
+    for (const retired of ['fiction', 'novel', 'academic', 'blog', 'compendium', 'screenplay', 'shortform-video']) {
+      assert.ok(!schema.properties.writingType.enum.includes(retired), retired);
+    }
     assert.deepEqual(schema.required.sort(), ['title', 'writingType']);
   });
 
@@ -258,8 +278,8 @@ describe('create_project — what is sent', () => {
       'GET /writing-types': () => (++calls === 1 ? { fail: 503 } : REGISTRY),
       'POST /projects': created,
     });
-    await assert.rejects(() => run('create_project', { title: 'H', writingType: 'novel' }));
-    const result = await run('create_project', { title: 'H', writingType: 'novel' });
+    await assert.rejects(() => run('create_project', { title: 'H', writingType: 'story' }));
+    const result = await run('create_project', { title: 'H', writingType: 'story' });
     assert.equal(result.project.id, 'p1');
   });
 
@@ -272,7 +292,7 @@ describe('manage_outline add — node types checked against the project', () => 
   test('an unknown type is refused before the batch', async () => {
     const sent = stub({
       'GET /writing-types': REGISTRY,
-      'GET /projects/p': { id: 'p', writingType: 'blog' },
+      'GET /projects/p': { id: 'p', writingType: 'document', shape: 'post' },
       'POST /batch': (body) => ({ nodes: body.nodes }),
     });
     await assert.rejects(
@@ -285,7 +305,7 @@ describe('manage_outline add — node types checked against the project', () => 
   test('a known type goes through', async () => {
     stub({
       'GET /writing-types': REGISTRY,
-      'GET /projects/p': { id: 'p', writingType: 'blog' },
+      'GET /projects/p': { id: 'p', writingType: 'document', shape: 'post' },
       'POST /batch': (body) => ({ nodes: body.nodes }),
     });
     const result = await run('manage_outline', { projectId: 'p', action: 'add', nodes: [{ title: 'P', nodeType: 'post' }] });
@@ -329,9 +349,68 @@ describe('create_project — a script', () => {
     assert.ok(!sent.some((r) => r.method === 'POST'));
   });
 
-  test('a shape on a type that has none is refused before anything exists', async () => {
+  test('a shape the type does not have is refused before anything exists', async () => {
     const sent = stub(happy());
-    await assert.rejects(() => run('create_project', { title: 'H', writingType: 'novel', shape: 'series' }));
+    await assert.rejects(() => run('create_project', { title: 'H', writingType: 'story', shape: 'series' }));
+    await assert.rejects(() => run('create_project', { title: 'H', writingType: 'poetry', shape: 'novel' }), /no shape/);
+    assert.ok(!sent.some((r) => r.method === 'POST'));
+  });
+});
+
+// ezquill epic #55: four writing types, and a shape for each of story and document.
+describe('create_project — a story or a document', () => {
+  test('a retired type is refused with what to send instead, before anything exists', async () => {
+    const sent = stub(happy());
+    await assert.rejects(
+      () => run('create_project', { title: 'H', writingType: 'academic' }),
+      (err) => {
+        assert.match(err.message, /"document" with shape "paper"/);
+        assert.deepEqual(err.detail.replacement, { writingType: 'document', shape: 'paper' });
+        return true;
+      }
+    );
+    await assert.rejects(() => run('create_project', { title: 'H', writingType: 'novel' }), /"story" with shape "novel"/);
+    await assert.rejects(() => run('create_project', { title: 'H', writingType: 'screenplay' }), /"script"/);
+    assert.ok(!sent.some((r) => r.method === 'POST' || r.path.endsWith('/writing-types')));
+  });
+
+  test('a document needs a form, and nothing is created without one', async () => {
+    const sent = stub(happy());
+    await assert.rejects(
+      () => run('create_project', { title: 'H', writingType: 'document' }),
+      /needs a form: shape must be one of paper, post/
+    );
+    assert.ok(!sent.some((r) => r.method === 'POST'));
+  });
+
+  test('a document is created with its form, and its levels are the form\'s', async () => {
+    const sent = stub({ ...happy(), 'POST /projects': { ...created, writingType: 'document', shape: 'post' } });
+    const result = await run('create_project', {
+      title: 'Field notes', writingType: 'document', shape: 'post', structure: [{ title: 'First', nodeType: 'post' }],
+    });
+    const post = sent.find((r) => r.method === 'POST' && r.path.endsWith('/projects'));
+    assert.equal(post.body.shape, 'post');
+    assert.ok(!('production' in post.body), 'a document has no production switch');
+    assert.deepEqual(result.levels.map((l) => l.key), ['post']);
+    assert.equal(result.project.shape, 'post');
+  });
+
+  test('a short story is scenes only', async () => {
+    stub({ ...happy(), 'POST /projects': { ...created, writingType: 'story', shape: 'short-story' } });
+    const result = await run('create_project', { title: 'H', writingType: 'story', shape: 'short-story' });
+    assert.deepEqual(result.levels.map((l) => l.key), ['scene']);
+    await assert.rejects(
+      () => run('create_project', { title: 'H', writingType: 'story', shape: 'short-story', structure: [{ title: 'P', nodeType: 'part' }] }),
+      (err) => err.code === Code.UNKNOWN_NODE_TYPE
+    );
+  });
+
+  test('production on a story is refused: only a script has the switch', async () => {
+    const sent = stub(happy());
+    await assert.rejects(
+      () => run('create_project', { title: 'H', writingType: 'story', production: true }),
+      /no production switch/
+    );
     assert.ok(!sent.some((r) => r.method === 'POST'));
   });
 });

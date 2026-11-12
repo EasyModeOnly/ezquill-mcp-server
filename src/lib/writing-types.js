@@ -46,8 +46,9 @@ export async function writingType(key) {
 }
 
 /**
- * The chain for a writing type — or for a PROJECT, whose shape and production
- * switch pick a script's levels (ezquill epic #48).
+ * The chain for a writing type — or for a PROJECT, whose shape picks the levels
+ * of a script, a story or a document, and whose production switch adds a
+ * script's shots (ezquill epics #48 and #55).
  *
  * A script's entry carries `variants`, one per (shape, production), each
  * already resolved by the API's registry; this only looks one up. A bare key
@@ -77,6 +78,15 @@ export async function levelsFor(ref) {
 export async function shapesFor(key) {
   const variants = (await writingType(key))?.variants ?? [];
   return [...new Set(variants.map((v) => v.shape))];
+}
+
+/**
+ * Whether a writing type can switch digital content creation on: whether any
+ * of its variants is a produced one. A script can; a story, a document and
+ * poetry cannot, though the first two have shapes.
+ */
+export async function hasProductionVariant(key) {
+  return ((await writingType(key))?.variants ?? []).some((v) => v.production === true);
 }
 
 /**

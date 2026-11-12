@@ -7,8 +7,8 @@
  *
  * # Where the levels come from
  *
- * NOT from this file. A novel is part → chapter, a screenplay act → sequence →
- * scene, a poetry collection collection → section → poem, and those chains live
+ * NOT from this file. A story is part → chapter, a feature script act →
+ * sequence → scene, a poetry collection collection → section → poem, and those chains live
  * in one registry in the ezQuill repo that the creation wizard also reads. This
  * tool asks the API for it (`lib/writing-types.js`) and refuses a node type the
  * writing type has no word for, because the API will not: `node_type` is open
@@ -32,7 +32,7 @@ import { randomUUID } from 'node:crypto';
 import { call } from '../lib/api.js';
 import { appBaseUrl } from '../lib/app-url.js';
 import { Code, ToolError } from '../lib/errors.js';
-import { levelsFor, plantedLevelsFor, shapesFor } from '../lib/writing-types.js';
+import { hasProductionVariant, levelsFor, plantedLevelsFor, shapesFor } from '../lib/writing-types.js';
 
 /**
  * Mirrors maxBatchNodes in the API's nodes service. The server is the real
@@ -49,26 +49,37 @@ export const MAX_NODES = 500;
  * surfaces as a loud refusal rather than a quietly wrong project. Without the
  * enum a model reliably invents `fiction`.
  */
-export const WRITING_TYPES = [
-  'novel',
-  'academic',
-  'blog',
-  'script',
-  'poetry',
-  'business',
-  'journalism',
-  'technical',
-  'compendium',
-];
+export const WRITING_TYPES = ['story', 'document', 'script', 'poetry'];
 
 /**
- * A script's shapes (ezquill epic #48). Screenplay and shortform video became
- * one `script` type that picks a shape and may switch production on; the API
- * refuses the two old types for a new project. The live list is the registry's
- * (`shapesFor`), and is checked before anything is created; this is the
- * schema's enum, for the same reason WRITING_TYPES is one.
+ * Every shape any writing type may take, as the schema's enum (ezquill epics
+ * #48 and #55): a script's shape, a story's length and a document's form. Which
+ * ones a type actually has is the registry's answer (`shapesFor`), checked
+ * before anything is created; this is the enum for the reason WRITING_TYPES is.
  */
 export const SCRIPT_SHAPES = ['feature', 'series', 'parts'];
+export const STORY_SHAPES = ['novel', 'novella', 'short-story'];
+export const DOCUMENT_FORMS = ['paper', 'article', 'post', 'report', 'documentation'];
+export const SHAPES = [...SCRIPT_SHAPES, ...STORY_SHAPES, ...DOCUMENT_FORMS];
+
+/**
+ * The writing types ezQuill retired, and what each became. The API refuses them
+ * for a new project; checking here turns a client holding a stale schema's
+ * "novel" into a refusal that says what to send instead, before anything is
+ * created. Mirrors FOLDED_WRITING_TYPES and RETIRED_WRITING_TYPES in the
+ * ezQuill repo (lib/types/core/writing-types.ts).
+ */
+export const RETIRED_WRITING_TYPES = {
+  novel: { writingType: 'story', shape: 'novel' },
+  compendium: { writingType: 'story', shape: 'novel' },
+  academic: { writingType: 'document', shape: 'paper' },
+  journalism: { writingType: 'document', shape: 'article' },
+  blog: { writingType: 'document', shape: 'post' },
+  business: { writingType: 'document', shape: 'report' },
+  technical: { writingType: 'document', shape: 'documentation' },
+  screenplay: { writingType: 'script', shape: 'feature' },
+  'shortform-video': { writingType: 'script', shape: 'series' },
+};
 
 /**
  * The document a prose-level node is created with.
@@ -91,9 +102,10 @@ const structureEntry = {
     nodeType: {
       type: 'string',
       description:
-        "A level from this project's vocabulary: part/chapter for a novel, act/sequence/" +
-        'scene for a feature script, episode/scene (and shot, with production on) for a ' +
-        'series script, post for a blog. Anything else is refused.',
+        "A level from this project's vocabulary: part/chapter for a novel-length story, " +
+        'scene for a short story, act/sequence/scene for a feature script, episode/scene ' +
+        '(and shot, with production on) for a series script, post for a document shaped ' +
+        'as a post. Anything else is refused.',
     },
     children: {
       type: 'array',
@@ -110,7 +122,9 @@ export const tools = [
     description:
       'Create a new project, optionally with its structure (parts, chapters, acts, posts…). ' +
       'Only when the writer has asked for one: it stays on their dashboard. Confirm the ' +
-      'title, writing type and structure with them first. A film, a show or a generated ' +
+      'title, writing type and structure with them first. Four writing types: a `story` ' +
+      '(fiction; its shape is its length), a `document` (non-fiction; its shape is its ' +
+      'form, and is required), a `script` and `poetry`. A film, a show or a generated ' +
       'short is a `script`: pick its shape, and set production for shots, takes and ' +
       'compiled prompts. A show (shape series, or parts) is a series of season projects: ' +
       'this creates the series and its first season, or — given seriesId — the next ' +
@@ -123,11 +137,14 @@ export const tools = [
         writingType: { type: 'string', enum: WRITING_TYPES },
         shape: {
           type: 'string',
-          enum: SCRIPT_SHAPES,
+          enum: SHAPES,
           description:
-            'Scripts only. feature: one film (act → sequence → scene). series: one season ' +
-            'of a show (episode → scene). parts: one part of a work in parts, shaped like a ' +
-            'feature. Defaults to feature.',
+            'Story: its length, novel (part → chapter → scene; the default), novella, or ' +
+            'short-story (scenes only). Document: its form, REQUIRED, one of paper (an ' +
+            'academic paper), article (journalism), post (a blog post), report (business), ' +
+            'documentation (technical). Script: feature (one film, act → sequence → scene; ' +
+            'the default), series (one season of a show, episode → scene), or parts (one ' +
+            'part of a work in parts, shaped like a feature). Poetry has none.',
         },
         production: {
           type: 'boolean',
@@ -159,6 +176,15 @@ export const tools = [
     async handler(args) {
       const { writingType, synopsis, genre } = args;
       let { title } = args;
+      const retired = RETIRED_WRITING_TYPES[writingType];
+      if (retired) {
+        throw new ToolError(
+          Code.REQUEST_FAILED,
+          `"${writingType}" is no longer a writing type: send writingType "${retired.writingType}" ` +
+            `with shape "${retired.shape}".`,
+          { writingType, replacement: retired }
+        );
+      }
       // The next season of an existing show: its shape and production carry
       // over from the latest season unless the caller states them.
       let show = null;
@@ -178,18 +204,32 @@ export const tools = [
         }
       }
       const shapes = await shapesFor(writingType);
-      if (shapes.length === 0 && (args.shape !== undefined || args.production !== undefined)) {
+      if (shapes.length === 0 && args.shape !== undefined) {
+        throw new ToolError(Code.REQUEST_FAILED, `A ${writingType} project has no shape.`);
+      }
+      const canProduce = await hasProductionVariant(writingType);
+      if (args.production !== undefined && !canProduce) {
         throw new ToolError(
           Code.REQUEST_FAILED,
-          `A ${writingType} has no shape or production switch; only a script does.`
+          `A ${writingType} project has no production switch; only a script does.`
         );
       }
       if (args.shape !== undefined && !shapes.includes(args.shape)) {
         throw new ToolError(Code.REQUEST_FAILED, `shape must be one of ${shapes.join(', ')}.`);
       }
+      // The API refuses a document without a form (it has no sensible default:
+      // a paper and a blog post are different binders), so say so before the
+      // project exists rather than after.
+      if (writingType === 'document' && args.shape === undefined) {
+        throw new ToolError(
+          Code.REQUEST_FAILED,
+          `A document needs a form: shape must be one of ${shapes.join(', ')}.`
+        );
+      }
       const structureOf = {
         writingType,
-        ...(shapes.length ? { shape: args.shape ?? shapes[0], production: args.production === true } : {}),
+        ...(shapes.length ? { shape: args.shape ?? shapes[0] } : {}),
+        ...(canProduce ? { production: args.production === true } : {}),
       };
       const levels = await levelsFor(structureOf);
       const plantedLevels = await plantedLevelsFor(structureOf);
@@ -236,7 +276,8 @@ export const tools = [
             title,
             writingType,
             ...membership,
-            ...(shapes.length ? { shape: structureOf.shape, production: structureOf.production } : {}),
+            ...(shapes.length ? { shape: structureOf.shape } : {}),
+            ...(canProduce ? { production: structureOf.production } : {}),
             ...(synopsis ? { synopsis } : {}),
             ...(genre ? { genre } : {}),
           },
