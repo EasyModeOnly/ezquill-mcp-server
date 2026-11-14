@@ -1,5 +1,6 @@
 import { call, callPaged } from '../lib/api.js';
 import { aimOf, alternateTitlesOf, assembleProse, sumWords, buildTree, byOrder, isBlock, ordinalOf, planLines } from '../lib/nodes.js';
+import { descriptionOf, frameFieldsOf, isFrame } from '../lib/frames.js';
 
 export const tools = [
   {
@@ -7,7 +8,10 @@ export const tools = [
     description:
       'The structure of a project: its parts, chapters and scenes, with status, ' +
       'word counts and each numbered node\'s ordinal ("Ep. 3", "Shot 10A"), which ' +
-      'ezQuill derives from position. Returns no prose — use read_scene for that.',
+      'ezQuill derives from position. Storyboard frames appear under their scene as ' +
+      'kind "frame" with their framing and line; they are pictures, not scenes to ' +
+      'write, and their words are not counted. Returns no prose or frame ' +
+      'descriptions — use read_scene for those.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -41,8 +45,11 @@ export const tools = [
   {
     name: 'read_scene',
     description:
-      'Read one scene: its prose, its outline plan, and which characters and places ' +
-      'appear in it. One node at a time — to find a scene, use search_project or get_outline.',
+      'Read one scene: its prose, its outline plan, which characters and places ' +
+      'appear in it, and its storyboard frames (each frame\'s ordinal, framing, line ' +
+      'and description, kept apart from the prose). One node at a time — to find a ' +
+      'scene, use search_project or get_outline. Read on a frame, it returns that ' +
+      'frame.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -63,12 +70,31 @@ export const tools = [
         callPaged(`/projects/${projectId}/nodes`, 'nodes', { parentId: nodeId, limit: 10000 }),
         call(`/projects/${projectId}/nodes/${nodeId}/entities`).catch(() => null),
       ]);
+      // A frame is read as a frame: its description is its own document and
+      // is not prose, so it is never reported as the scene's text or counted.
+      if (isFrame(node)) {
+        return {
+          id: node.id,
+          title: node.title,
+          ordinal: ordinalOf(node),
+          nodeType: node.nodeType,
+          kind: 'frame',
+          parentId: node.parentId ?? undefined,
+          ...frameFieldsOf(node),
+          description: descriptionOf(node) ?? '',
+          contentVersion: node.contentVersion,
+        };
+      }
       // A shot's production, in brief (ezquill epic #38): its status and its
       // takes. get_production scope "shot" has the whole of it.
       const production = node.nodeType === 'shot' ? await shotProduction(projectId, nodeId, node) : undefined;
 
       const blocks = children.filter(isBlock).sort(byOrder);
-      const structural = children.filter((c) => !isBlock(c)).sort(byOrder);
+      const structural = children.filter((c) => !isBlock(c) && !isFrame(c)).sort(byOrder);
+      // The scene's storyboard (epic #56). Listed apart from the prose and
+      // never assembled into it: a frame describes a picture, and its words
+      // are not the manuscript (Decision 83aa524b).
+      const frames = children.filter(isFrame).sort(byOrder);
 
       return {
         id: node.id,
@@ -105,6 +131,17 @@ export const tools = [
           ordinal: ordinalOf(c),
           nodeType: c.nodeType,
         })),
+        ...(frames.length > 0
+          ? {
+              frames: frames.map((f) => ({
+                id: f.id,
+                ordinal: ordinalOf(f),
+                ...(f.title ? { title: f.title } : {}),
+                ...frameFieldsOf(f),
+                description: descriptionOf(f) ?? '',
+              })),
+            }
+          : {}),
         ...(production ? { production } : {}),
       };
     },

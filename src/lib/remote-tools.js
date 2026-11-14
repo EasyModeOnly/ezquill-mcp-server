@@ -59,6 +59,9 @@ export const REMOTE_SAFE = new Set([
   'create_project',
   'manage_outline',
   'write_draft',
+  // Storyboard frames (ezquill epic #56): the nodes batch, content and PATCH
+  // routes plus a version snapshot. API calls only.
+  'manage_storyboard',
   'manage_entity',
   'manage_cast',
   'manage_timeline',

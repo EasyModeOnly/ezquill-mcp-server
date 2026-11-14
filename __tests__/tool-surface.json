@@ -235,6 +235,23 @@
         "update_take"
       ]
     },
+    "manage_storyboard": {
+      "params": [
+        "action",
+        "afterFrameId",
+        "description",
+        "frames",
+        "framing",
+        "line",
+        "nodeId",
+        "projectId"
+      ],
+      "actions": [
+        "add_frames",
+        "set_description",
+        "set_frame"
+      ]
+    },
     "manage_timeline": {
       "params": [
         "action",

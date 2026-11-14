@@ -16,8 +16,8 @@ a person already wrote becomes a suggested edit they accept in ezQuill — see
 | `list_projects` | which projects are there |
 | `get_project` | what one project is, how far along, its premise |
 | `search_project` | **where is this discussed** — semantic, not keyword |
-| `get_outline` | the binder: parts, chapters, scenes, status |
-| `read_scene` | one scene's prose, its plan, and who is in it |
+| `get_outline` | the binder: parts, chapters, scenes, status, and storyboard frames (never counted as words) |
+| `read_scene` | one scene's prose, its plan, who is in it, and its frames apart from the prose |
 | `list_entities` | the story world: characters, places, factions, notes |
 | `get_entity` | one of them in full, with relations and appearances |
 | `get_timeline` | story chronology, or the writer's own milestones |
@@ -33,6 +33,7 @@ a person already wrote becomes a suggested edit they accept in ezQuill — see
 | `create_project` | start a project of any writing type, with its parts, chapters or posts — only when the writer asks |
 | `manage_outline` | add, rename, move, restatus or delete parts of the binder; set a paragraph's plan |
 | `write_draft` | `append` paragraphs, `fill_plan` an unwritten one, or `revise` — which **proposes** |
+| `manage_storyboard` | a story's storyboard frames: add them to a scene, write a frame's description, set its framing and line. Needs the storyboard on; a script's cards are its shots |
 | `manage_entity` | create and edit characters, places, notes, and the relationships between them |
 | `manage_cast` | who is in a scene, and in what role |
 | `manage_timeline` | events in the story, or milestones in the writing |
