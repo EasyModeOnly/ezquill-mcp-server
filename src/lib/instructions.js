@@ -71,6 +71,9 @@ Changing things:
   (feature, series, parts). With digital content creation ON it has a shot
   under every scene, takes and compiled prompts; with it off those tools
   refuse, and the writer switches it on in settings.
+- A story's storyboard puts frames (kind "frame") under scenes: pictures, not
+  scenes to write, and not manuscript words. Fill them with manage_storyboard.
+  A script has no frames: its storyboard cards are its shots.
 - A show is a series; each season is a project (see list_projects
   "series"). Its cast and bible are the show's: edit them once from any
   season, never copy them. create_project with seriesId adds a season.

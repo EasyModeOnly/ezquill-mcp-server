@@ -47,8 +47,9 @@ export async function writingType(key) {
 
 /**
  * The chain for a writing type — or for a PROJECT, whose shape picks the levels
- * of a script, a story or a document, and whose production switch adds a
- * script's shots (ezquill epics #48 and #55).
+ * of a script, a story or a document, whose production switch adds a script's
+ * shots, and whose storyboard switch adds a story's frames (ezquill epics #48,
+ * #55 and #56).
  *
  * A script's entry carries `variants`, one per (shape, production), each
  * already resolved by the API's registry; this only looks one up. A bare key
@@ -63,7 +64,17 @@ async function chainFor(ref) {
   if (typeof ref === 'string' || !Array.isArray(entry.variants) || entry.variants.length === 0) return entry;
   const production = ref.production === true;
   const shape = entry.variants.some((v) => v.shape === ref.shape) ? ref.shape : entry.variants[0].shape;
-  return entry.variants.find((v) => v.shape === shape && v.production === production) ?? entry;
+  // The storyboard switch (ezquill epic #56) is the third key: a story with it
+  // on has a `frame` level under its scenes, a script its shots. Matched on
+  // its own, then without it, because a registry that predates the switch
+  // serves no `storyboard` on any variant, and a switch the type does not
+  // have is ignored rather than dropping the project to its default shape —
+  // the API's own rule.
+  const pick = (storyboard) =>
+    entry.variants.find(
+      (v) => v.shape === shape && v.production === production && (v.storyboard === true) === storyboard
+    );
+  return pick(ref.storyboard === true) ?? pick(false) ?? entry;
 }
 
 /**

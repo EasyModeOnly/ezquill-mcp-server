@@ -42,6 +42,8 @@
  * one, so the manuscript is guarded where it matters rather than here.
  */
 
+import { frameFieldsOf, isFrame } from './frames.js';
+
 export const BLOCK = 'block';
 
 export const isBlock = (node) => node?.nodeType === BLOCK;
@@ -91,10 +93,17 @@ export const aimOf = (node) => {
 /**
  * What this node IS, in the words a writer would use.
  *
- * @returns {'scene'|'folder'|'unwritten'|'paragraph'}
+ * A storyboard FRAME is neither a scene nor a folder: it is a picture of the
+ * scene above it, and its words are not manuscript (ezquill Decision
+ * 83aa524b). So it is its own kind, and a scene's frames do not make it a
+ * folder or a written scene — a scene with frames and no prose is unwritten.
+ *
+ * @returns {'scene'|'folder'|'unwritten'|'paragraph'|'frame'}
  */
 export function classify(node, children = []) {
   if (isBlock(node)) return 'paragraph';
+  if (isFrame(node)) return 'frame';
+  children = children.filter((c) => !isFrame(c));
 
   // Its own prose, the pre-#32 shape and still legal: a chapter may hold prose
   // directly, delegate to child scenes, or both.
@@ -206,6 +215,21 @@ export function buildTree(nodes) {
   }
 
   const shape = (entry) => {
+    // A frame: its number, its framing and line, and nothing counted. Its
+    // description is its own document, which this light list does not carry;
+    // read_scene on the scene returns it.
+    if (isFrame(entry.node)) {
+      return {
+        id: entry.node.id,
+        title: entry.node.title,
+        ordinal: ordinalOf(entry.node),
+        nodeType: entry.node.nodeType,
+        status: entry.node.status,
+        kind: 'frame',
+        ...frameFieldsOf(entry.node),
+        children: entry.children.sort((a, b) => byOrder(a.node, b.node)).map(shape),
+      };
+    }
     const childNodes = entry.children.map((c) => c.node);
     const blocks = blocksByParent.get(entry.node.id) ?? [];
     const children = entry.children.sort((a, b) => byOrder(a.node, b.node)).map(shape);
@@ -222,10 +246,14 @@ export function buildTree(nodes) {
       // document is NULL by design), so printing the column told an agent a
       // written chapter was empty. Summed here rather than stored, because a
       // fact about other rows is a count, not a column.
+      //
+      // A frame's words are NOT manuscript (Decision 83aa524b), so a frame
+      // carries no wordCount and adds nothing here — the API's own totals
+      // leave frames out too.
       wordCount:
         (entry.node.wordCount ?? 0) +
         sumWords(blocks) +
-        children.reduce((total, child) => total + child.wordCount, 0),
+        children.reduce((total, child) => total + (child.wordCount ?? 0), 0),
       // What this section has to argue or do (a post's thesis, a scene's
       // purpose). Not the synopsis in `description`. Omitted when unset.
       aim: aimOf(entry.node),

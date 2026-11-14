@@ -47,6 +47,10 @@ export const Code = {
   // A production tool on a script with digital content creation switched off
   // (ezquill epic #48): the shots, takes and prompts exist only with it on.
   PRODUCTION_OFF: 'PRODUCTION_OFF',
+  // A storyboard tool on a project whose storyboard is switched off, or whose
+  // writing type has no frames (ezquill epic #56). The writer switches it on
+  // in the project's settings; nothing is deleted while it is off.
+  STORYBOARD_OFF: 'STORYBOARD_OFF',
   /**
    * The owner's plan does not allow this (the API's 403 `plan_limit`): storage
    * full, the project limit reached. Not FORBIDDEN_SCOPE — granting the

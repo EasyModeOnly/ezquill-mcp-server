@@ -15,6 +15,7 @@ import { tools as dictionary } from './dictionary.js';
 import { tools as writeProjects } from './write-projects.js';
 import { tools as writeOutline } from './write-outline.js';
 import { tools as writeDraft } from './write-draft.js';
+import { tools as writeStoryboard } from './write-storyboard.js';
 import { tools as writeStoryWorld } from './write-story-world.js';
 import { tools as writeTimeline } from './write-timeline.js';
 import { tools as writeProduction } from './write-production.js';
@@ -42,6 +43,8 @@ export const TOOLS = [
   ...writeProjects,
   ...writeOutline,
   ...writeDraft,
+  // A story's frames (ezquill epic #56), beside the prose they picture.
+  ...writeStoryboard,
   ...writeStoryWorld,
   ...writeTimeline,
   ...writeProduction,

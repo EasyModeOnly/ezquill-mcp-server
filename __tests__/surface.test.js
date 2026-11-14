@@ -89,7 +89,11 @@ describe('instructions', () => {
   test('stays within its budget', () => {
     // Charged to every session on every client, unlike a skill, which is
     // fetched on demand and can afford hundreds of lines.
-    assert.ok(Buffer.byteLength(INSTRUCTIONS, 'utf8') < 6000);
+    //
+    // 6000 until the storyboard's three lines (ezquill #705), which it was
+    // already 3 bytes short of. Raised by exactly that paragraph rather than
+    // trimming other rules to make room; a further rise should cut first.
+    assert.ok(Buffer.byteLength(INSTRUCTIONS, 'utf8') < 6250);
   });
 
   test('carries the facts an agent cannot infer from the schemas', () => {

@@ -9,6 +9,7 @@
 import { call, callPaged } from './api.js';
 import { ToolError, Code } from './errors.js';
 import { byOrder, isBlock } from './nodes.js';
+import { isFrame } from './frames.js';
 
 /** A section's live blocks, in paragraph order. */
 export async function sectionBlocks(projectId, nodeId) {
@@ -54,6 +55,16 @@ export async function refuseUnmigrated(projectId, nodeId, blocks) {
     throw new ToolError(
       Code.REQUEST_FAILED,
       'That id is a paragraph, not a section. Pass the scene, chapter or post it belongs to.'
+    );
+  }
+  // A storyboard frame keeps its description in its own document, and the
+  // API refuses paragraphs under one (its words are not manuscript). Said here
+  // in words an agent can act on, rather than as the API's bare 400.
+  if (isFrame(node)) {
+    throw new ToolError(
+      Code.REQUEST_FAILED,
+      'That id is a storyboard frame, which holds a description, not paragraphs. ' +
+        'Use manage_storyboard set_description to write it, or pass the scene to add prose to the scene.'
     );
   }
   if (node?.hasProse && isEmptyDocument(node.content?.document)) return true;

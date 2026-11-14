@@ -19,6 +19,7 @@ import { ToolError, Code } from '../lib/errors.js';
 import { addableLevelsFor } from '../lib/writing-types.js';
 import { refuseUnmigrated, sectionBlocks } from '../lib/sections.js';
 import { isBlock, ordinalOf } from '../lib/nodes.js';
+import { FRAME, descriptionDocument } from '../lib/frames.js';
 
 export const tools = [
   {
@@ -35,7 +36,8 @@ export const tools = [
       'paragraph. Numbers ("Ep. 3", "Shot 10A") are derived from position and shown ' +
       'beside the title: never type a number into a title. Use set_numbering to pin ' +
       'a number, split a node from the one before (10 → 10A/10B), or leave it out ' +
-      'of the count.',
+      'of the count. Storyboard frames are added and filled with manage_storyboard; ' +
+      'move and delete them here like any other node.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -219,6 +221,11 @@ export const tools = [
               title: n.title,
               ...(n.nodeType ? { nodeType: n.nodeType } : {}),
               ...(n.parentId ? { parentId: n.parentId } : {}),
+              // A frame is planted WITH an empty document, as the app's board
+              // plants one: its description lives there, and a frame without
+              // one would read as a folder. manage_storyboard add_frames is the
+              // fuller path (description, framing and line in one request).
+              ...(n.nodeType === FRAME ? { content: descriptionDocument('') } : {}),
               // `order` is deliberately omitted: absent means "append after the
               // last sibling", which is what adding to an outline means. An
               // explicit 0 would put every one of them first, in reverse.
