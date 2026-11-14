@@ -19,13 +19,9 @@
  *
  * # Safe by construction (Decision c6378e77)
  *
- * Adding frames destroys nothing. Writing a description into a frame that has
- * none is additive too. REPLACING a description somebody wrote first keeps
- * the old one as a version of the frame, so the change is restorable from the
- * frame's history rather than a silent overwrite, and the write itself carries
- * `ifContentVersion`: a description changed by somebody else since it was read
- * is refused (and the refused text kept as a version by the API) rather than
- * clobbered. A suggested edit is not used here because the storyboard shows no
+ * Adding frames destroys nothing. A description is written by
+ * `replaceDescription` (lib/descriptions.js), which keeps a replaced one as a
+ * version and guards the write with `ifContentVersion`. A suggested edit is not used here because the storyboard shows no
  * comments, so a suggestion on a frame would be one nobody could see.
  */
 import { randomUUID } from 'node:crypto';
@@ -33,6 +29,7 @@ import { call, callPaged } from '../lib/api.js';
 import { ToolError, Code } from '../lib/errors.js';
 import { byOrder, ordinalOf } from '../lib/nodes.js';
 import { levelsFor } from '../lib/writing-types.js';
+import { replaceDescription } from '../lib/descriptions.js';
 import {
   FRAME,
   FRAMINGS,
@@ -273,42 +270,15 @@ async function setDescription({ projectId, nodeId, description }) {
     throw new ToolError(Code.REQUEST_FAILED, 'set_description needs a non-empty `description`.');
   }
   const frame = await readFrame(projectId, nodeId);
-  const next = descriptionDocument(description);
-  const previous = descriptionOf(frame);
-  if (previous === next.plainText) {
-    return { unchanged: nodeId, description: previous };
-  }
-
-  // Replacing somebody's words: keep them as a version first, so the change
-  // is restorable from the frame's history. With no body content the API
-  // snapshots the node's current document itself, so what is kept is what is
-  // stored, not what this connector believes is stored.
-  let keptVersion;
-  if (previous) {
-    const version = await call(`/projects/${projectId}/nodes/${nodeId}/versions`, {
-      method: 'POST',
-      body: { type: 'manual', description: 'Frame description before an agent replaced it' },
-    });
-    keptVersion = version?.id;
-  }
-
-  const updated = await call(`/projects/${projectId}/nodes/${nodeId}/content`, {
-    method: 'PUT',
-    body: {
-      ...next,
-      // Written only over the description that was read. A change made since
-      // is refused with STALE_CONTENT, and the API keeps this text as a
-      // version, rather than either write vanishing.
-      ...(typeof frame.contentVersion === 'number' ? { ifContentVersion: frame.contentVersion } : {}),
-    },
-  });
+  const result = await replaceDescription(projectId, frame, description, 'Frame');
+  if (result.unchanged) return { unchanged: nodeId, description: result.description };
 
   return {
-    updated: summariseFrame({ ...updated, content: updated?.content ?? next }),
-    ...(previous
+    updated: summariseFrame(result.updated),
+    ...(result.previous
       ? {
-          previousDescription: previous,
-          keptAsVersion: keptVersion ?? true,
+          previousDescription: result.previous,
+          keptAsVersion: result.keptVersion,
           note: 'The previous description is kept in the frame\'s version history and can be restored.',
         }
       : {}),

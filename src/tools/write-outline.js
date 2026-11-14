@@ -20,6 +20,7 @@ import { addableLevelsFor } from '../lib/writing-types.js';
 import { refuseUnmigrated, sectionBlocks } from '../lib/sections.js';
 import { isBlock, ordinalOf } from '../lib/nodes.js';
 import { FRAME, descriptionDocument } from '../lib/frames.js';
+import { PANEL } from '../lib/panels.js';
 
 export const tools = [
   {
@@ -36,8 +37,9 @@ export const tools = [
       'paragraph. Numbers ("Ep. 3", "Shot 10A") are derived from position and shown ' +
       'beside the title: never type a number into a title. Use set_numbering to pin ' +
       'a number, split a node from the one before (10 → 10A/10B), or leave it out ' +
-      'of the count. Storyboard frames are added and filled with manage_storyboard; ' +
-      'move and delete them here like any other node.',
+      'of the count. Storyboard frames are added and filled with manage_storyboard, ' +
+      'and a comic\'s panels with manage_comic; move and delete either here like any ' +
+      'other node.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -225,7 +227,9 @@ export const tools = [
               // plants one: its description lives there, and a frame without
               // one would read as a folder. manage_storyboard add_frames is the
               // fuller path (description, framing and line in one request).
-              ...(n.nodeType === FRAME ? { content: descriptionDocument('') } : {}),
+              // A comic panel likewise (epic #57); manage_comic add_panels is
+              // its fuller path.
+              ...(n.nodeType === FRAME || n.nodeType === PANEL ? { content: descriptionDocument('') } : {}),
               // `order` is deliberately omitted: absent means "append after the
               // last sibling", which is what adding to an outline means. An
               // explicit 0 would put every one of them first, in reverse.

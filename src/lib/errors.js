@@ -51,6 +51,9 @@ export const Code = {
   // writing type has no frames (ezquill epic #56). The writer switches it on
   // in the project's settings; nothing is deleted while it is off.
   STORYBOARD_OFF: 'STORYBOARD_OFF',
+  // A comic tool on a project that is not a comic (ezquill epic #57). Its
+  // pictures are a story's frames or a script's shots, with tools of their own.
+  NOT_A_COMIC: 'NOT_A_COMIC',
   /**
    * The owner's plan does not allow this (the API's 403 `plan_limit`): storage
    * full, the project limit reached. Not FORBIDDEN_SCOPE — granting the

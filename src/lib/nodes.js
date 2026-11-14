@@ -43,6 +43,10 @@
  */
 
 import { frameFieldsOf, isFrame } from './frames.js';
+import { isPanel, letteringSummary, panelLayout } from './panels.js';
+
+/** A picture, not manuscript: a storyboard frame or a comic panel. */
+export const isPicture = (node) => isFrame(node) || isPanel(node);
 
 export const BLOCK = 'block';
 
@@ -98,12 +102,18 @@ export const aimOf = (node) => {
  * 83aa524b). So it is its own kind, and a scene's frames do not make it a
  * folder or a written scene — a scene with frames and no prose is unwritten.
  *
- * @returns {'scene'|'folder'|'unwritten'|'paragraph'|'frame'}
+ * A comic PANEL (ezquill epic #57) is the same: a picture on a page, built on
+ * the frame, so a page's panels do not make it a folder either. A page whose
+ * only content is its panels reads as unwritten — its own text is the page's
+ * notes — and get_outline lists the panels beneath it.
+ *
+ * @returns {'scene'|'folder'|'unwritten'|'paragraph'|'frame'|'panel'}
  */
 export function classify(node, children = []) {
   if (isBlock(node)) return 'paragraph';
   if (isFrame(node)) return 'frame';
-  children = children.filter((c) => !isFrame(c));
+  if (isPanel(node)) return 'panel';
+  children = children.filter((c) => !isPicture(c));
 
   // Its own prose, the pre-#32 shape and still legal: a chapter may hold prose
   // directly, delegate to child scenes, or both.
@@ -228,6 +238,23 @@ export function buildTree(nodes) {
         kind: 'frame',
         ...frameFieldsOf(entry.node),
         children: entry.children.sort((a, b) => byOrder(a.node, b.node)).map(shape),
+      };
+    }
+    // A comic panel (epic #57): like a frame, plus its place on the page and
+    // its lettering in brief — counts by kind, never the words, which
+    // read_scene returns with each speaker's name.
+    if (isPanel(entry.node)) {
+      const { framing } = frameFieldsOf(entry.node);
+      return {
+        id: entry.node.id,
+        title: entry.node.title,
+        ordinal: ordinalOf(entry.node),
+        nodeType: entry.node.nodeType,
+        status: entry.node.status,
+        kind: 'panel',
+        ...(framing ? { framing } : {}),
+        ...panelLayout(entry.node),
+        lettering: letteringSummary(entry.node),
       };
     }
     const childNodes = entry.children.map((c) => c.node);

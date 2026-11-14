@@ -261,11 +261,11 @@ describe('create_project — what is sent', () => {
     );
   });
 
-  test('the writing type is a closed enum of the four types', () => {
+  test('the writing type is a closed enum of the five types', () => {
     const schema = tool('create_project').inputSchema;
     // ezquill epic #55: nine types became four; epic #48 had already folded
-    // screenplay and shortform video into script.
-    assert.deepEqual([...schema.properties.writingType.enum].sort(), ['document', 'poetry', 'script', 'story']);
+    // screenplay and shortform video into script. Epic #57 added comic.
+    assert.deepEqual([...schema.properties.writingType.enum].sort(), ['comic', 'document', 'poetry', 'script', 'story']);
     for (const retired of ['fiction', 'novel', 'academic', 'blog', 'compendium', 'screenplay', 'shortform-video']) {
       assert.ok(!schema.properties.writingType.enum.includes(retired), retired);
     }
