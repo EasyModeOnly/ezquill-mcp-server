@@ -1,6 +1,7 @@
 import { call, callPaged } from '../lib/api.js';
 import { aimOf, alternateTitlesOf, assembleProse, sumWords, buildTree, byOrder, isBlock, ordinalOf, planLines } from '../lib/nodes.js';
 import { descriptionOf, frameFieldsOf, isFrame } from '../lib/frames.js';
+import { isPanel, lettering, letteringRevision, letteringWithNames, panelLayout } from '../lib/panels.js';
 
 export const tools = [
   {
@@ -10,8 +11,9 @@ export const tools = [
       'word counts and each numbered node\'s ordinal ("Ep. 3", "Shot 10A"), which ' +
       'ezQuill derives from position. Storyboard frames appear under their scene as ' +
       'kind "frame" with their framing and line; they are pictures, not scenes to ' +
-      'write, and their words are not counted. Returns no prose or frame ' +
-      'descriptions — use read_scene for those.',
+      'write, and their words are not counted. A comic\'s panels appear under their ' +
+      'page as kind "panel" with ordinal, framing, box and a count of their lettering. ' +
+      'Returns no prose, frame or panel descriptions, or lettering — use read_scene.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -47,9 +49,10 @@ export const tools = [
     description:
       'Read one scene: its prose, its outline plan, which characters and places ' +
       'appear in it, and its storyboard frames (each frame\'s ordinal, framing, line ' +
-      'and description, kept apart from the prose). One node at a time — to find a ' +
-      'scene, use search_project or get_outline. Read on a frame, it returns that ' +
-      'frame.',
+      'and description, kept apart from the prose). On a comic page it lists the ' +
+      'panels: description, framing, box, and lettering with each speaker named. One ' +
+      'node at a time — to find a scene, use search_project or get_outline. Read on a ' +
+      'frame or a panel, it returns that one.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -85,16 +88,23 @@ export const tools = [
           contentVersion: node.contentVersion,
         };
       }
+      if (isPanel(node)) {
+        const [panel] = await panelsInFull(projectId, [node]);
+        return { ...panel, parentId: node.parentId ?? undefined, contentVersion: node.contentVersion };
+      }
       // A shot's production, in brief (ezquill epic #38): its status and its
       // takes. get_production scope "shot" has the whole of it.
       const production = node.nodeType === 'shot' ? await shotProduction(projectId, nodeId, node) : undefined;
 
       const blocks = children.filter(isBlock).sort(byOrder);
-      const structural = children.filter((c) => !isBlock(c) && !isFrame(c)).sort(byOrder);
+      const structural = children.filter((c) => !isBlock(c) && !isFrame(c) && !isPanel(c)).sort(byOrder);
       // The scene's storyboard (epic #56). Listed apart from the prose and
       // never assembled into it: a frame describes a picture, and its words
       // are not the manuscript (Decision 83aa524b).
       const frames = children.filter(isFrame).sort(byOrder);
+      // A comic page's panels (epic #57), the same way: pictures with their
+      // lettering, never assembled into the page's own text.
+      const panels = await panelsInFull(projectId, children.filter(isPanel).sort(byOrder));
 
       return {
         id: node.id,
@@ -142,11 +152,42 @@ export const tools = [
               })),
             }
           : {}),
+        ...(panels.length > 0 ? { panels } : {}),
         ...(production ? { production } : {}),
       };
     },
   },
 ];
+
+/**
+ * Panels as read_scene returns them: description, framing, box, and lettering
+ * with each speaker's NAME, resolved from the project's characters at read
+ * time, as the app does. The characters are read only when a panel has a
+ * speaker, and a failure to read them leaves the ids rather than failing.
+ */
+async function panelsInFull(projectId, panels) {
+  if (panels.length === 0) return [];
+  const speaking = panels.some((p) => lettering(p).some((i) => i.speakerId));
+  const characters = speaking
+    ? await callPaged(`/projects/${projectId}/entities`, 'entities', { kind: 'character', limit: 1000 }).catch(() => [])
+    : [];
+  const names = new Map(characters.map((c) => [c.id, c.name]));
+  return panels.map((p) => {
+    const { framing } = frameFieldsOf(p);
+    return {
+      id: p.id,
+      ordinal: ordinalOf(p),
+      ...(p.title ? { title: p.title } : {}),
+      kind: 'panel',
+      ...(framing ? { framing } : {}),
+      description: descriptionOf(p) ?? '',
+      ...panelLayout(p),
+      lettering: letteringWithNames(p, names),
+      // Send this back as ifRevision with manage_comic set_lettering.
+      letteringRevision: letteringRevision(p),
+    };
+  });
+}
 
 /**
  * A shot's production at a glance: status, how many takes, which is locked.

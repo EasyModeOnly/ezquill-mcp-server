@@ -107,6 +107,27 @@
         "unlink"
       ]
     },
+    "manage_comic": {
+      "params": [
+        "action",
+        "afterPanelId",
+        "boxes",
+        "description",
+        "framing",
+        "ifRevision",
+        "items",
+        "nodeId",
+        "panels",
+        "projectId"
+      ],
+      "actions": [
+        "add_panels",
+        "set_boxes",
+        "set_description",
+        "set_framing",
+        "set_lettering"
+      ]
+    },
     "manage_entity": {
       "params": [
         "action",

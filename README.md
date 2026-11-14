@@ -16,8 +16,8 @@ a person already wrote becomes a suggested edit they accept in ezQuill — see
 | `list_projects` | which projects are there |
 | `get_project` | what one project is, how far along, its premise |
 | `search_project` | **where is this discussed** — semantic, not keyword |
-| `get_outline` | the binder: parts, chapters, scenes, status, and storyboard frames (never counted as words) |
-| `read_scene` | one scene's prose, its plan, who is in it, and its frames apart from the prose |
+| `get_outline` | the binder: parts, chapters, scenes, status, storyboard frames and a comic's panels (pictures, never counted as words) |
+| `read_scene` | one scene's prose, its plan, who is in it, and its frames apart from the prose; on a comic page, its panels with their lettering, each speaker named |
 | `list_entities` | the story world: characters, places, factions, notes |
 | `get_entity` | one of them in full, with relations and appearances |
 | `get_timeline` | story chronology, or the writer's own milestones |
@@ -30,10 +30,11 @@ a person already wrote becomes a suggested edit they accept in ezQuill — see
 
 | tool | what it does |
 | --- | --- |
-| `create_project` | start a project of any writing type, with its parts, chapters or posts — only when the writer asks |
+| `create_project` | start a project of any writing type (a comic with its form: manga, webtoon, graphic novel, comic book), with its parts, chapters or posts — only when the writer asks |
 | `manage_outline` | add, rename, move, restatus or delete parts of the binder; set a paragraph's plan |
 | `write_draft` | `append` paragraphs, `fill_plan` an unwritten one, or `revise` — which **proposes** |
 | `manage_storyboard` | a story's storyboard frames: add them to a scene, write a frame's description, set its framing and line. Needs the storyboard on; a script's cards are its shots |
+| `manage_comic` | a comic's panels: add them to a page, write a panel's description and framing, its lettering (balloons and thoughts by a character in the cast, captions, sound effects; guarded by a revision), and its box on the page (all or none). Comic projects only |
 | `manage_entity` | create and edit characters, places, notes, and the relationships between them |
 | `manage_cast` | who is in a scene, and in what role |
 | `manage_timeline` | events in the story, or milestones in the writing |
@@ -55,7 +56,10 @@ composes the whole-section reconcile itself (sending only your new paragraphs
 to that endpoint would delete every paragraph you left out), and every writer of
 a JSONB column rebuilds it from the row it read (a partial write to
 `nodes.metadata` replaces the whole blob; a partial write to a timeline event's
-`story` drops its cast).
+`story` drops its cast). A comic panel's lettering and box are the exception
+that proves it: the API owns `metadata.panel` and ignores it on PATCH, so
+`manage_comic` writes them only through their own routes, and a balloon's
+speaker is a character id resolved from the cast, never a name it guessed.
 
 `search_project` is the one nothing else can offer: a question can match the
 passage that answers it without sharing any words with it.

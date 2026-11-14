@@ -10,6 +10,7 @@ import { call, callPaged } from './api.js';
 import { ToolError, Code } from './errors.js';
 import { byOrder, isBlock } from './nodes.js';
 import { isFrame } from './frames.js';
+import { isPanel } from './panels.js';
 
 /** A section's live blocks, in paragraph order. */
 export async function sectionBlocks(projectId, nodeId) {
@@ -65,6 +66,15 @@ export async function refuseUnmigrated(projectId, nodeId, blocks) {
       Code.REQUEST_FAILED,
       'That id is a storyboard frame, which holds a description, not paragraphs. ' +
         'Use manage_storyboard set_description to write it, or pass the scene to add prose to the scene.'
+    );
+  }
+  // A comic panel likewise (ezquill epic #57): its description is its own
+  // document and its words are lettering, each with its own tool.
+  if (isPanel(node)) {
+    throw new ToolError(
+      Code.REQUEST_FAILED,
+      'That id is a comic panel, which holds a description and lettering, not paragraphs. ' +
+        'Use manage_comic set_description or set_lettering, or pass the page to write its notes.'
     );
   }
   if (node?.hasProse && isEmptyDocument(node.content?.document)) return true;

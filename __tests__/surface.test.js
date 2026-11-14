@@ -93,6 +93,7 @@ describe('instructions', () => {
     // 6000 until the storyboard's three lines (ezquill #705), which it was
     // already 3 bytes short of. Raised by exactly that paragraph rather than
     // trimming other rules to make room; a further rise should cut first.
+    // The comic's panels (ezquill #710) fit by folding into that paragraph.
     assert.ok(Buffer.byteLength(INSTRUCTIONS, 'utf8') < 6250);
   });
 

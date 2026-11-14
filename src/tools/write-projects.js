@@ -49,7 +49,7 @@ export const MAX_NODES = 500;
  * surfaces as a loud refusal rather than a quietly wrong project. Without the
  * enum a model reliably invents `fiction`.
  */
-export const WRITING_TYPES = ['story', 'document', 'script', 'poetry'];
+export const WRITING_TYPES = ['story', 'document', 'script', 'poetry', 'comic'];
 
 /**
  * Every shape any writing type may take, as the schema's enum (ezquill epics
@@ -60,7 +60,17 @@ export const WRITING_TYPES = ['story', 'document', 'script', 'poetry'];
 export const SCRIPT_SHAPES = ['feature', 'series', 'parts'];
 export const STORY_SHAPES = ['novel', 'novella', 'short-story'];
 export const DOCUMENT_FORMS = ['paper', 'article', 'post', 'report', 'documentation'];
-export const SHAPES = [...SCRIPT_SHAPES, ...STORY_SHAPES, ...DOCUMENT_FORMS];
+export const COMIC_FORMS = ['manga', 'webtoon', 'graphic-novel', 'comic-book'];
+export const SHAPES = [...SCRIPT_SHAPES, ...STORY_SHAPES, ...DOCUMENT_FORMS, ...COMIC_FORMS];
+
+/**
+ * The writing types whose shape is REQUIRED: a document's form and a comic's
+ * (ezquill epics #55 and #57). The API refuses either without one, since
+ * neither has a sensible default — a paper and a post are different binders,
+ * and a manga and a webtoon are not even both made of pages. Which forms a
+ * type has is still the served registry's answer (`shapesFor`).
+ */
+const FORM_REQUIRED = { document: 'A document needs a form', comic: 'A comic needs a form' };
 
 /**
  * The writing types ezQuill retired, and what each became. The API refuses them
@@ -105,7 +115,8 @@ const structureEntry = {
         "A level from this project's vocabulary: part/chapter for a novel-length story, " +
         'scene for a short story, act/sequence/scene for a feature script, episode/scene ' +
         '(and shot, with production on) for a series script, post for a document shaped ' +
-        'as a post. Anything else is refused.',
+        'as a post, chapter/page for a graphic novel. Panels are added later with ' +
+        'manage_comic. Anything else is refused.',
     },
     children: {
       type: 'array',
@@ -124,7 +135,8 @@ export const tools = [
       'Only when the writer has asked for one: it stays on their dashboard. Confirm the ' +
       'title, writing type and structure with them first. Four writing types: a `story` ' +
       '(fiction; its shape is its length), a `document` (non-fiction; its shape is its ' +
-      'form, and is required), a `script` and `poetry`. A film, a show or a generated ' +
+      'form, and is required), a `script`, `poetry` and a `comic` (its shape is its form, ' +
+      'required: manga, webtoon, graphic-novel or comic-book). A film, a show or a generated ' +
       'short is a `script`: pick its shape, and set production for shots, takes and ' +
       'compiled prompts. A show (shape series, or parts) is a series of season projects: ' +
       'this creates the series and its first season, or — given seriesId — the next ' +
@@ -144,7 +156,10 @@ export const tools = [
             'academic paper), article (journalism), post (a blog post), report (business), ' +
             'documentation (technical). Script: feature (one film, act → sequence → scene; ' +
             'the default), series (one season of a show, episode → scene), or parts (one ' +
-            'part of a work in parts, shaped like a feature). Poetry has none.',
+            'part of a work in parts, shaped like a feature). Comic: its form, REQUIRED, one of ' +
+            'manga (volume → chapter → page → panel, read right to left), webtoon (episode → ' +
+            'panel, one vertical strip), graphic-novel (chapter → page → panel) or comic-book ' +
+            '(issue → page → panel). Poetry has none.',
         },
         production: {
           type: 'boolean',
@@ -217,13 +232,12 @@ export const tools = [
       if (args.shape !== undefined && !shapes.includes(args.shape)) {
         throw new ToolError(Code.REQUEST_FAILED, `shape must be one of ${shapes.join(', ')}.`);
       }
-      // The API refuses a document without a form (it has no sensible default:
-      // a paper and a blog post are different binders), so say so before the
-      // project exists rather than after.
-      if (writingType === 'document' && args.shape === undefined) {
+      // The API refuses a document or a comic without a form, so say so
+      // before the project exists rather than after.
+      if (FORM_REQUIRED[writingType] && args.shape === undefined) {
         throw new ToolError(
           Code.REQUEST_FAILED,
-          `A document needs a form: shape must be one of ${shapes.join(', ')}.`
+          `${FORM_REQUIRED[writingType]}: shape must be one of ${shapes.join(', ')}.`
         );
       }
       const structureOf = {
