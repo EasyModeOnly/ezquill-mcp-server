@@ -33,7 +33,7 @@ a person already wrote becomes a suggested edit they accept in ezQuill — see
 | `create_project` | start a project of any writing type (a comic with its form: manga, webtoon, graphic novel, comic book), with its parts, chapters or posts — only when the writer asks |
 | `manage_outline` | add, rename, move, restatus or delete parts of the binder; set a paragraph's plan |
 | `write_draft` | `append` paragraphs, `fill_plan` an unwritten one, or `revise` — which **proposes** |
-| `manage_storyboard` | a story's storyboard frames: add them to a scene, write a frame's description, set its framing and line. Needs the storyboard on; a script's cards are its shots |
+| `manage_storyboard` | a story's storyboard frames: add them to a scene (or a chapter written with no scenes), write a frame's description, set its framing and line. Needs the storyboard on; a script's cards are its shots |
 | `manage_comic` | a comic's panels: add them to a page, write a panel's description and framing, its lettering (balloons and thoughts by a character in the cast, captions, sound effects; guarded by a revision), and its box on the page (all or none). Comic projects only |
 | `manage_entity` | create and edit characters, places, notes, and the relationships between them |
 | `manage_cast` | who is in a scene, and in what role |

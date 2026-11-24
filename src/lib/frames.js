@@ -3,9 +3,9 @@
  *
  * # What a frame is on the wire
  *
- * A node with `nodeType: 'frame'`, the child of a scene, numbered "Frame N"
- * within it by the API (the ordinal is served, never counted here). It has
- * three fields a writer fills:
+ * A node with `nodeType: 'frame'`, numbered "Frame N" within its parent by
+ * the API (the ordinal is served, never counted here). See "Where a frame
+ * goes" below for which parent. It has three fields a writer fills:
  *
  * - **Description**: the node's OWN document (Tiptap JSON + plainText), written
  *   through `PUT /nodes/{id}/content` with the version guard. Never in blocks —
@@ -29,6 +29,38 @@
  */
 
 export const FRAME = 'frame';
+
+/**
+ * # Where a frame goes (ezquill task #749, owner's decision 2026-11-24)
+ *
+ * Under the LOWEST level that carries prose: a scene, or a chapter written
+ * with no scenes. A chapter that has scenes is above the board's groups, and
+ * its frames go on its scenes. The served registry lists both scene and
+ * chapter as a frame's parent, because a book can be both at once (one chapter
+ * split into scenes, the next not); which node actually takes frames depends
+ * on what is beneath it, so that half is checked here, against its children.
+ * The API stores a frame under anything, so for an AI client this is the only
+ * guard. The app's version is `holdsCards` in lib/storyboard/board.ts.
+ *
+ * The app still SHOWS frames already sitting on a chapter that later got
+ * scenes (it never orphans a card), so this steers new frames rather than
+ * passing judgement on old ones.
+ */
+export const WHERE_FRAMES_GO =
+  'Frames sit under the lowest level that carries prose: a scene, or a chapter written with no scenes.';
+
+// Children that are not sections of the binder: paragraphs, and the levels
+// that stay off the page (pictures and a script's shots). The app's
+// OFF_PAGE_NODE_TYPES plus `block`.
+const NOT_SECTIONS = new Set(['block', FRAME, 'panel', 'shot']);
+
+/**
+ * The sections directly beneath a node (a chapter's scenes), in the order
+ * given. Non-empty means the node is NOT the lowest prose level, so frames
+ * belong on these instead.
+ */
+export const sectionsAmong = (children) =>
+  (Array.isArray(children) ? children : []).filter((c) => c && !NOT_SECTIONS.has(c.nodeType));
 
 export const isFrame = (node) => node?.nodeType === FRAME;
 
