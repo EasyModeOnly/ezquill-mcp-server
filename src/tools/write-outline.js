@@ -16,10 +16,10 @@
 import { randomUUID } from 'node:crypto';
 import { call } from '../lib/api.js';
 import { ToolError, Code } from '../lib/errors.js';
-import { addableLevelsFor } from '../lib/writing-types.js';
+import { addableLevelsFor, levelsFor } from '../lib/writing-types.js';
 import { refuseUnmigrated, sectionBlocks } from '../lib/sections.js';
 import { isBlock, ordinalOf } from '../lib/nodes.js';
-import { FRAME, descriptionDocument } from '../lib/frames.js';
+import { FRAME, descriptionDocument, isFrame, requireFrameHolder } from '../lib/frames.js';
 import { PANEL } from '../lib/panels.js';
 
 export const tools = [
@@ -39,7 +39,8 @@ export const tools = [
       'a number, split a node from the one before (10 → 10A/10B), or leave it out ' +
       'of the count. Storyboard frames are added and filled with manage_storyboard, ' +
       'and a comic\'s panels with manage_comic; move and delete either here like any ' +
-      'other node.',
+      'other node. A frame added or moved here goes where add_frames puts one: under a ' +
+      'scene, or a chapter written with no scenes.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -210,6 +211,22 @@ export const tools = [
                 { writingType: project.writingType, nodeType: unknown.nodeType, allowed }
               );
             }
+
+            // A frame goes under the lowest prose level, and only there (task
+            // #881): the same check manage_storyboard add_frames makes, once
+            // per parent, before anything is sent. The other direction — a
+            // scene added to a chapter that already holds frames — is not
+            // refused: the app still shows those frames (it never orphans a
+            // card), and splitting a chapter into scenes is the writer's call.
+            const frameParents = new Map();
+            for (const n of typed) {
+              if (n.nodeType !== FRAME) continue;
+              const key = n.parentId ?? null;
+              frameParents.set(key, (frameParents.get(key) ?? 0) + 1);
+            }
+            for (const [parentId, count] of frameParents) {
+              await requireFrameHolder(projectId, parentId, levels, { count, verb: 'Add' });
+            }
           }
 
           // The CLIENT mints the ids, which is what the batch endpoint expects:
@@ -267,6 +284,7 @@ export const tools = [
 
         case 'move': {
           requireNode(args);
+          await requireFrameDestination(projectId, args.nodeId, args.parentId ?? null);
           // Its OWN endpoint, never PATCH. Reparenting is the one mutation that
           // can corrupt the tree — PATCH has no parentId field precisely so an
           // unchecked write cannot detach a branch into a cycle — and this path
@@ -404,6 +422,25 @@ export const tools = [
  * API writes in the INSERT, so a line and its plan land in one transaction or
  * not at all.
  */
+/**
+ * A frame moved to a new parent must land where add_frames would have put it
+ * (task #881): the lowest prose level, by the one shared check in
+ * lib/frames.js. Only a frame is checked, and only when its parent changes. A
+ * reorder within the same parent is not a placement, and refusing it would
+ * strand a frame already sitting on a chapter that later got scenes, which
+ * the app still shows.
+ */
+async function requireFrameDestination(projectId, nodeId, parentId) {
+  const node = await call(`/projects/${projectId}/nodes/${nodeId}`);
+  if (!isFrame(node) || (node.parentId ?? null) === parentId) return;
+  const project = await call(`/projects/${projectId}`);
+  const levels = await levelsFor(project);
+  // A registry without a frame level cannot say which levels take one, so
+  // only the scenes half is checked then rather than refusing every parent.
+  const known = levels.some((l) => l.key === FRAME);
+  await requireFrameHolder(projectId, parentId, known ? levels : null, { count: 1, verb: 'Move' });
+}
+
 async function addLines({ projectId, nodeId, lines }) {
   const plans = (lines ?? [])
     .map((entry) =>

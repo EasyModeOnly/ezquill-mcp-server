@@ -299,6 +299,8 @@ describe('manage_outline add reads the storyboard variant of the served registry
     const sent = stub({
       'GET /projects/p': STORY,
       'GET /writing-types': REGISTRY,
+      'GET /projects/p/nodes/s': { id: 's', nodeType: 'scene' },
+      'GET /projects/p/nodes': { nodes: [], hasMore: false },
       'POST /projects/p/nodes/batch': (body) => ({ nodes: body.nodes }),
     });
     await run('manage_outline', { projectId: 'p', action: 'add', nodes: [{ title: '', nodeType: 'frame', parentId: 's' }] });
@@ -313,6 +315,155 @@ describe('manage_outline add reads the storyboard variant of the served registry
       () => run('manage_outline', { projectId: 'p', action: 'add', nodes: [{ title: '', nodeType: 'frame', parentId: 's' }] }),
       (err) => err.code === Code.UNKNOWN_NODE_TYPE
     );
+  });
+});
+
+/**
+ * Task #881: manage_outline add and move put a frame where add_frames would,
+ * through the same check (requireFrameHolder in lib/frames.js).
+ */
+const CHAPTER_WITH_SCENES = {
+  'GET /projects/p/nodes/c': { id: 'c', nodeType: 'chapter', title: 'The Crossing' },
+  'GET /projects/p/nodes': (_body, u) => {
+    const parent = u.searchParams.get('parentId');
+    if (parent === 'c') {
+      return {
+        nodes: [
+          { id: 's2', nodeType: 'scene', parentId: 'c', order: 2, title: '', ordinal: { display: 'Scene 2' } },
+          { id: 's1', nodeType: 'scene', parentId: 'c', order: 1, title: 'The quay' },
+          { id: 'b1', nodeType: 'block', parentId: 'c', order: 0 },
+        ],
+        hasMore: false,
+      };
+    }
+    // A scene, and a chapter written with no scenes: paragraphs and frames only.
+    return { nodes: [{ id: 'b9', nodeType: 'block', parentId: parent, order: 1 }, frame('f9', 2, { parentId: parent })], hasMore: false };
+  },
+  'GET /projects/p/nodes/s1': { id: 's1', nodeType: 'scene', parentId: 'c', title: 'The quay' },
+  'GET /projects/p/nodes/c2': { id: 'c2', nodeType: 'chapter', title: 'Landfall' },
+  'GET /projects/p/nodes/pt': { id: 'pt', nodeType: 'part' },
+};
+
+const refusedNamingScenes = (verb) => (err) => {
+  assert.equal(err.code, Code.REQUEST_FAILED);
+  assert.match(err.message, /The chapter "The Crossing" has 2 scenes beneath it/);
+  assert.match(err.message, /a scene, or a chapter written with no scenes/);
+  assert.match(err.message, new RegExp(`${verb} th`));
+  assert.match(err.message, /scene "The quay" \(nodeId s1\); Scene 2 \(nodeId s2\)/);
+  assert.deepEqual(err.detail.sections.map((n) => n.id), ['s1', 's2']);
+  return true;
+};
+
+describe('manage_outline add — a frame goes under the lowest prose level (#881)', () => {
+  const routes = (extra = {}) => ({
+    'GET /projects/p': STORY,
+    'GET /writing-types': REGISTRY,
+    ...CHAPTER_WITH_SCENES,
+    'POST /projects/p/nodes/batch': (body) => ({ nodes: body.nodes }),
+    ...extra,
+  });
+
+  test('refused under a chapter that has scenes, naming them, with nothing sent', async () => {
+    const sent = stub(routes());
+    await assert.rejects(
+      () => run('manage_outline', { projectId: 'p', action: 'add', nodes: [{ title: '', nodeType: 'frame', parentId: 'c' }] }),
+      refusedNamingScenes('Add')
+    );
+    assert.ok(sent.every((r) => r.method === 'GET'), 'nothing is written');
+  });
+
+  test('refused when one frame of a batch is misplaced, so none is planted', async () => {
+    const sent = stub(routes());
+    await assert.rejects(() =>
+      run('manage_outline', {
+        projectId: 'p',
+        action: 'add',
+        nodes: [
+          { title: '', nodeType: 'frame', parentId: 's1' },
+          { title: '', nodeType: 'frame', parentId: 'c' },
+        ],
+      })
+    );
+    assert.ok(sent.every((r) => r.method === 'GET'));
+  });
+
+  test('refused under a part, and at the top of the project', async () => {
+    stub(routes());
+    for (const parentId of ['pt', undefined]) {
+      await assert.rejects(
+        () => run('manage_outline', { projectId: 'p', action: 'add', nodes: [{ title: '', nodeType: 'frame', ...(parentId ? { parentId } : {}) }] }),
+        (err) => /under a chapter or scene/.test(err.message) && /lowest level that carries prose/.test(err.message)
+      );
+    }
+  });
+
+  test('allowed under a scene, and under a chapter written with no scenes', async () => {
+    for (const parentId of ['s1', 'c2']) {
+      const sent = stub(routes());
+      const out = await run('manage_outline', { projectId: 'p', action: 'add', nodes: [{ title: '', nodeType: 'frame', parentId }] });
+      assert.equal(sent.find((r) => r.method === 'POST').body.nodes[0].parentId, parentId);
+      assert.equal(out.created.length, 1);
+    }
+  });
+
+  test('a scene added to a chapter that already holds frames is not refused', async () => {
+    const sent = stub(routes());
+    await run('manage_outline', { projectId: 'p', action: 'add', nodes: [{ title: 'Ashore', nodeType: 'scene', parentId: 'c2' }] });
+    assert.ok(sent.some((r) => r.method === 'POST'));
+    assert.ok(!sent.some((r) => r.path === '/projects/p/nodes/c2'), 'a scene costs no placement check');
+  });
+});
+
+describe('manage_outline move — a frame moves only to the lowest prose level (#881)', () => {
+  const routes = (moving, extra = {}) => ({
+    'GET /projects/p': STORY,
+    'GET /writing-types': REGISTRY,
+    ...CHAPTER_WITH_SCENES,
+    [`GET /projects/p/nodes/${moving.id}`]: moving,
+    [`PUT /projects/p/nodes/${moving.id}/parent`]: (body) => ({ ...moving, parentId: body.parentId }),
+    ...extra,
+  });
+  const f = frame('f1', 1, { parentId: 's1' });
+
+  test('refused onto a chapter that has scenes, naming them, with nothing sent', async () => {
+    const sent = stub(routes(f));
+    await assert.rejects(
+      () => run('manage_outline', { projectId: 'p', action: 'move', nodeId: 'f1', parentId: 'c' }),
+      refusedNamingScenes('Move')
+    );
+    assert.ok(sent.every((r) => r.method === 'GET'), 'nothing is written');
+  });
+
+  test('refused onto a part, and to the top of the project', async () => {
+    stub(routes(f));
+    for (const parentId of ['pt', undefined]) {
+      await assert.rejects(
+        () => run('manage_outline', { projectId: 'p', action: 'move', nodeId: 'f1', ...(parentId ? { parentId } : {}) }),
+        (err) => /under a chapter or scene/.test(err.message)
+      );
+    }
+  });
+
+  test('allowed onto a scene, and onto a chapter written with no scenes', async () => {
+    for (const parentId of ['c2', 's1']) {
+      const sent = stub(routes({ ...f, parentId: 'elsewhere' }));
+      const out = await run('manage_outline', { projectId: 'p', action: 'move', nodeId: 'f1', parentId });
+      assert.equal(sent.find((r) => r.method === 'PUT').body.parentId, parentId);
+      assert.equal(out.moved.parentId, parentId);
+    }
+  });
+
+  test('a frame already on a chapter with scenes may still be reordered there', async () => {
+    const sent = stub(routes(frame('f-old', 4, { parentId: 'c' })));
+    await run('manage_outline', { projectId: 'p', action: 'move', nodeId: 'f-old', parentId: 'c', order: 0.5 });
+    assert.ok(sent.some((r) => r.method === 'PUT'));
+  });
+
+  test('a scene is moved without a frame check', async () => {
+    const sent = stub(routes({ id: 's1', nodeType: 'scene', parentId: 'c', title: 'The quay' }));
+    await run('manage_outline', { projectId: 'p', action: 'move', nodeId: 's1', parentId: 'c2' });
+    assert.ok(sent.some((r) => r.method === 'PUT'));
+    assert.ok(!sent.some((r) => r.path === '/projects/p/nodes/c2'));
   });
 });
 

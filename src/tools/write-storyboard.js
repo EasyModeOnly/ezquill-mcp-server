@@ -30,7 +30,7 @@
  * comments, so a suggestion on a frame would be one nobody could see.
  */
 import { randomUUID } from 'node:crypto';
-import { call, callPaged } from '../lib/api.js';
+import { call } from '../lib/api.js';
 import { ToolError, Code } from '../lib/errors.js';
 import { byOrder, ordinalOf } from '../lib/nodes.js';
 import { levelsFor } from '../lib/writing-types.js';
@@ -44,7 +44,7 @@ import {
   frameFieldsOf,
   isFrame,
   normaliseLine,
-  sectionsAmong,
+  requireFrameHolder,
   withFrameFields,
 } from '../lib/frames.js';
 
@@ -231,72 +231,6 @@ async function addFrames({ projectId, nodeId, frames, afterFrameId }, levels) {
     note: 'Numbers are ezQuill\'s: call get_outline or read_scene to see every frame\'s current number.',
   };
 }
-
-/**
- * Refuse a parent that does not take frames, before anything is sent.
- *
- * Two checks. The parent's level must be one the SERVED registry puts frames
- * under (a scene, a chapter), not whatever id was passed. And it must be the
- * lowest prose level: a chapter with scenes beneath it is above the board's
- * groups, so a frame on it is not where the writer looks for that picture.
- * The refusal names the scenes, so the model can pick one. Returns the
- * parent's children, which add_frames reuses to place afterFrameId.
- */
-async function requireFrameHolder(projectId, nodeId, levels) {
-  const parents = levels.filter((l) => (l.children ?? []).includes(FRAME)).map((l) => l.key);
-  const target = await call(`/projects/${projectId}/nodes/${nodeId}`);
-  if (!parents.includes(target?.nodeType)) {
-    throw new ToolError(
-      Code.REQUEST_FAILED,
-      `Frames go under a ${parents.join(' or ') || 'scene'}, and that id is a ${target?.nodeType ?? 'node'}. ` +
-        `${WHERE_FRAMES_GO} Pass the scene the frames picture.`,
-      { nodeType: target?.nodeType, parents }
-    );
-  }
-
-  const children = await callPaged(`/projects/${projectId}/nodes`, 'nodes', { parentId: nodeId, omitContent: true, limit: 10000 });
-  const sections = sectionsAmong(children).sort(byOrder);
-  if (sections.length === 0) return children;
-
-  const kind = target.nodeType;
-  const shown = sections.slice(0, MAX_NAMED);
-  const more = sections.length - shown.length;
-  throw new ToolError(
-    Code.REQUEST_FAILED,
-    `${subject(target, kind)} has ${sections.length === 1 ? 'a' : sections.length} ` +
-      `${sections.length === 1 ? sectionNoun(sections) : `${sectionNoun(sections)}s`} beneath it, so it takes no frames ` +
-      `itself. ${WHERE_FRAMES_GO} Add these frames to the one they picture: ` +
-      shown.map((n) => `${label(n, n.nodeType)} (nodeId ${n.id})`).join('; ') +
-      (more > 0 ? `; and ${more} more (get_outline lists them).` : '.'),
-    {
-      nodeType: kind,
-      sections: sections.map((n) => ({ id: n.id, nodeType: n.nodeType, title: n.title || undefined, ordinal: ordinalOf(n)?.display })),
-    }
-  );
-}
-
-/** Sections one refusal names before saying how many more there are. */
-const MAX_NAMED = 20;
-
-/** "scene", or the common level of the sections when they are not scenes. */
-const sectionNoun = (sections) => {
-  const types = new Set(sections.map((n) => n.nodeType));
-  return types.size === 1 ? [...types][0] : 'section';
-};
-
-/** How a refusal lists a node: its number and title, whichever it has. */
-const label = (node, kind) => {
-  const ordinal = ordinalOf(node)?.display;
-  const title = node?.title ? `"${node.title}"` : undefined;
-  if (ordinal && title) return `${ordinal} ${title}`;
-  return ordinal ?? (title ? `${kind} ${title}` : `untitled ${kind}`);
-};
-
-/** The node a refusal is about, to start a sentence. */
-const subject = (node, kind) => {
-  if (node?.title) return `The ${kind} "${node.title}"`;
-  return ordinalOf(node)?.display ?? `This ${kind}`;
-};
 
 /**
  * Orders for `count` new frames placed after `afterFrameId`, between it and
