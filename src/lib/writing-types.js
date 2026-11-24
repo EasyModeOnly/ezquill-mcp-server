@@ -65,7 +65,8 @@ async function chainFor(ref) {
   const production = ref.production === true;
   const shape = entry.variants.some((v) => v.shape === ref.shape) ? ref.shape : entry.variants[0].shape;
   // The storyboard switch (ezquill epic #56) is the third key: a story with it
-  // on has a `frame` level under its scenes, a script its shots. Matched on
+  // on has a `frame` level under its prose levels (ezquill #749), a script its
+  // shots under its scenes. Matched on
   // its own, then without it, because a registry that predates the switch
   // serves no `storyboard` on any variant, and a switch the type does not
   // have is ignored rather than dropping the project to its default shape —

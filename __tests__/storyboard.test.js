@@ -20,7 +20,8 @@ const run = (name, args) => withRequest({ token: 't' }, () => tool(name).handler
 const level = (key, children = [], extra = {}) => ({ key, label: key, children, carriesProse: true, ...extra });
 const storyLevels = (storyboard) => [
   level('part', ['chapter']),
-  level('chapter', ['scene']),
+  // As served since ezquill #749: a frame sits under every prose level.
+  level('chapter', storyboard ? ['scene', 'frame'] : ['scene']),
   level('scene', storyboard ? ['frame'] : []),
   ...(storyboard ? [level('frame', [], { numbered: true, numberLabel: 'Frame' })] : []),
 ];
@@ -145,6 +146,7 @@ describe('manage_storyboard add_frames', () => {
       'GET /projects/p': STORY,
       'GET /writing-types': REGISTRY,
       'GET /projects/p/nodes/s': { id: 's', nodeType: 'scene' },
+      'GET /projects/p/nodes': { nodes: [{ id: 'b1', nodeType: 'block', parentId: 's', order: 1 }], hasMore: false },
       'POST /projects/p/nodes/batch': (body) => ({ nodes: body.nodes }),
     });
 
@@ -208,17 +210,75 @@ describe('manage_storyboard add_frames', () => {
     assert.ok(sent.every((r) => r.method === 'GET'));
   });
 
-  test('frames go under a scene, not a chapter', async () => {
+  test('frames go under a prose level, not a part', async () => {
+    const sent = stub({
+      'GET /projects/p': STORY,
+      'GET /writing-types': REGISTRY,
+      'GET /projects/p/nodes/pt': { id: 'pt', nodeType: 'part' },
+    });
+    await assert.rejects(
+      () => run('manage_storyboard', { projectId: 'p', action: 'add_frames', nodeId: 'pt', frames: [{ description: 'x' }] }),
+      (err) => /under a chapter or scene/.test(err.message) && /lowest level that carries prose/.test(err.message)
+    );
+    assert.ok(sent.every((r) => r.method === 'GET'));
+  });
+
+  test('a chapter that has scenes is refused, naming its scenes, with nothing sent', async () => {
+    const sent = stub({
+      'GET /projects/p': STORY,
+      'GET /writing-types': REGISTRY,
+      'GET /projects/p/nodes/c': { id: 'c', nodeType: 'chapter', title: 'The Crossing' },
+      'GET /projects/p/nodes': (_body, u) => {
+        assert.equal(u.searchParams.get('parentId'), 'c');
+        return {
+          nodes: [
+            { id: 's2', nodeType: 'scene', parentId: 'c', order: 2, title: '', ordinal: { display: 'Scene 2' } },
+            { id: 'b1', nodeType: 'block', parentId: 'c', order: 0 },
+            { id: 's1', nodeType: 'scene', parentId: 'c', order: 1, title: 'The quay' },
+            frame('f-old', 3, { parentId: 'c' }),
+          ],
+          hasMore: false,
+        };
+      },
+    });
+    await assert.rejects(
+      () => run('manage_storyboard', { projectId: 'p', action: 'add_frames', nodeId: 'c', frames: [{ description: 'x' }] }),
+      (err) => {
+        assert.equal(err.code, Code.REQUEST_FAILED);
+        assert.match(err.message, /The chapter "The Crossing" has 2 scenes beneath it/);
+        assert.match(err.message, /a scene, or a chapter written with no scenes/);
+        // In manuscript order, each with the id to pass back.
+        assert.match(err.message, /scene "The quay" \(nodeId s1\); Scene 2 \(nodeId s2\)/);
+        assert.deepEqual(err.detail.sections.map((n) => n.id), ['s1', 's2']);
+        return true;
+      }
+    );
+    assert.ok(sent.every((r) => r.method === 'GET'), 'nothing is written');
+  });
+
+  test('a chapter written with no scenes takes frames itself', async () => {
     const sent = stub({
       'GET /projects/p': STORY,
       'GET /writing-types': REGISTRY,
       'GET /projects/p/nodes/c': { id: 'c', nodeType: 'chapter' },
+      // Its paragraphs and an existing frame are not sections.
+      'GET /projects/p/nodes': {
+        nodes: [{ id: 'b1', nodeType: 'block', parentId: 'c', order: 1 }, frame('f1', 2, { parentId: 'c' })],
+        hasMore: false,
+      },
+      'POST /projects/p/nodes/batch': (body) => ({ nodes: body.nodes }),
     });
-    await assert.rejects(
-      () => run('manage_storyboard', { projectId: 'p', action: 'add_frames', nodeId: 'c', frames: [{ description: 'x' }] }),
-      (err) => /under a scene/.test(err.message)
-    );
-    assert.ok(sent.every((r) => r.method === 'GET'));
+    const out = await run('manage_storyboard', {
+      projectId: 'p', action: 'add_frames', nodeId: 'c', afterFrameId: 'f1', frames: [{ description: 'The deck.' }],
+    });
+    const post = sent.find((r) => r.method === 'POST');
+    assert.equal(post.body.nodes[0].parentId, 'c');
+    assert.equal(post.body.nodes[0].order, 3, 'after the last frame');
+    assert.equal(out.created.length, 1);
+  });
+
+  test('the description says where frames go', () => {
+    assert.match(tool('manage_storyboard').description, /lowest level that carries prose: a scene, or a chapter written with no scenes/);
   });
 
   test('an API with no frame level in the served registry is refused', async () => {

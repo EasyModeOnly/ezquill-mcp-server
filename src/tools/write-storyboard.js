@@ -1,5 +1,6 @@
 /**
- * A story's storyboard (ezquill epic #56): frames under a scene.
+ * A story's storyboard (ezquill epic #56): frames under the lowest level that
+ * carries prose — a scene, or a chapter written with no scenes (task #749).
  *
  * A frame is a node (see lib/frames.js for its fields), so moving, reordering
  * and deleting one is manage_outline's `move` and `delete`, exactly as for a
@@ -16,6 +17,10 @@
  * - A served registry with no frame level for this project. The level is read
  *   from GET /writing-types, never assumed, so a connector ahead of its API
  *   says so rather than planting a level the API does not know.
+ * - A parent the frame does not belong under: a level the served registry
+ *   gives no frame (a Part), or a chapter that HAS scenes. The second names
+ *   those scenes, so the model can pick the one the picture belongs to rather
+ *   than guess (task #879; the rule is WHERE_FRAMES_GO in lib/frames.js).
  *
  * # Safe by construction (Decision c6378e77)
  *
@@ -33,11 +38,13 @@ import { replaceDescription } from '../lib/descriptions.js';
 import {
   FRAME,
   FRAMINGS,
+  WHERE_FRAMES_GO,
   descriptionDocument,
   descriptionOf,
   frameFieldsOf,
   isFrame,
   normaliseLine,
+  sectionsAmong,
   withFrameFields,
 } from '../lib/frames.js';
 
@@ -67,9 +74,10 @@ export const tools = [
   {
     name: 'manage_storyboard',
     description:
-      'A story\'s storyboard: frames under a scene, each a picture with a description, an optional ' +
-      'framing and an optional line (dialogue or a caption). add_frames plants frames in a scene, ' +
-      'after its last frame or after afterFrameId; set_description writes one frame\'s description ' +
+      'A story\'s storyboard: frames, each a picture with a description, an optional framing and an ' +
+      'optional line (dialogue or a caption). ' + WHERE_FRAMES_GO + ' A chapter that has scenes takes ' +
+      'none itself: put its frames on the scene they picture. add_frames plants frames in a scene ' +
+      '(or a chapter with no scenes), after its last frame or after afterFrameId; set_description writes one frame\'s description ' +
       '(replacing one keeps the old text as a version of the frame); set_frame sets or clears its ' +
       'framing and line. Frames are numbered by ezQuill ("Frame 3") — never put a number in a ' +
       'title. Move, reorder or delete a frame with manage_outline move / delete. Frames are not ' +
@@ -83,7 +91,8 @@ export const tools = [
         action: { type: 'string', enum: ['add_frames', 'set_description', 'set_frame'] },
         nodeId: {
           type: 'string',
-          description: 'For add_frames, the SCENE. For set_description and set_frame, the frame. From get_outline or read_scene.',
+          description: 'For add_frames, the SCENE (or a chapter with no scenes). For set_description and set_frame, ' +
+            'the frame. From get_outline or read_scene.',
         },
         frames: {
           type: 'array',
@@ -102,7 +111,7 @@ export const tools = [
         },
         afterFrameId: {
           type: 'string',
-          description: 'For add_frames: put the new frames after this frame of the scene. Omit to add at the end.',
+          description: 'For add_frames: put the new frames after this frame of the same scene or chapter. Omit to add at the end.',
         },
         description: {
           type: 'string',
@@ -194,21 +203,9 @@ async function addFrames({ projectId, nodeId, frames, afterFrameId }, levels) {
     return { content: descriptionDocument(f?.description), fields };
   });
 
-  // The parent must be a level the SERVED registry puts frames under (a
-  // scene), not whatever id was passed: a frame under a chapter is a card the
-  // board never shows.
-  const parents = levels.filter((l) => (l.children ?? []).includes(FRAME)).map((l) => l.key);
-  const scene = await call(`/projects/${projectId}/nodes/${nodeId}`);
-  if (!parents.includes(scene?.nodeType)) {
-    throw new ToolError(
-      Code.REQUEST_FAILED,
-      `Frames go under a ${parents.join(' or ') || 'scene'}, and that id is a ${scene?.nodeType ?? 'node'}. ` +
-        'Pass the scene the frames picture.',
-      { nodeType: scene?.nodeType, parents }
-    );
-  }
+  const children = await requireFrameHolder(projectId, nodeId, levels);
 
-  const orders = afterFrameId ? await ordersAfter(projectId, nodeId, afterFrameId, planned.length) : undefined;
+  const orders = afterFrameId ? ordersAfter(children, afterFrameId, planned.length) : undefined;
 
   const result = await call(`/projects/${projectId}/nodes/batch`, {
     method: 'POST',
@@ -236,16 +233,80 @@ async function addFrames({ projectId, nodeId, frames, afterFrameId }, levels) {
 }
 
 /**
+ * Refuse a parent that does not take frames, before anything is sent.
+ *
+ * Two checks. The parent's level must be one the SERVED registry puts frames
+ * under (a scene, a chapter), not whatever id was passed. And it must be the
+ * lowest prose level: a chapter with scenes beneath it is above the board's
+ * groups, so a frame on it is not where the writer looks for that picture.
+ * The refusal names the scenes, so the model can pick one. Returns the
+ * parent's children, which add_frames reuses to place afterFrameId.
+ */
+async function requireFrameHolder(projectId, nodeId, levels) {
+  const parents = levels.filter((l) => (l.children ?? []).includes(FRAME)).map((l) => l.key);
+  const target = await call(`/projects/${projectId}/nodes/${nodeId}`);
+  if (!parents.includes(target?.nodeType)) {
+    throw new ToolError(
+      Code.REQUEST_FAILED,
+      `Frames go under a ${parents.join(' or ') || 'scene'}, and that id is a ${target?.nodeType ?? 'node'}. ` +
+        `${WHERE_FRAMES_GO} Pass the scene the frames picture.`,
+      { nodeType: target?.nodeType, parents }
+    );
+  }
+
+  const children = await callPaged(`/projects/${projectId}/nodes`, 'nodes', { parentId: nodeId, omitContent: true, limit: 10000 });
+  const sections = sectionsAmong(children).sort(byOrder);
+  if (sections.length === 0) return children;
+
+  const kind = target.nodeType;
+  const shown = sections.slice(0, MAX_NAMED);
+  const more = sections.length - shown.length;
+  throw new ToolError(
+    Code.REQUEST_FAILED,
+    `${subject(target, kind)} has ${sections.length === 1 ? 'a' : sections.length} ` +
+      `${sections.length === 1 ? sectionNoun(sections) : `${sectionNoun(sections)}s`} beneath it, so it takes no frames ` +
+      `itself. ${WHERE_FRAMES_GO} Add these frames to the one they picture: ` +
+      shown.map((n) => `${label(n, n.nodeType)} (nodeId ${n.id})`).join('; ') +
+      (more > 0 ? `; and ${more} more (get_outline lists them).` : '.'),
+    {
+      nodeType: kind,
+      sections: sections.map((n) => ({ id: n.id, nodeType: n.nodeType, title: n.title || undefined, ordinal: ordinalOf(n)?.display })),
+    }
+  );
+}
+
+/** Sections one refusal names before saying how many more there are. */
+const MAX_NAMED = 20;
+
+/** "scene", or the common level of the sections when they are not scenes. */
+const sectionNoun = (sections) => {
+  const types = new Set(sections.map((n) => n.nodeType));
+  return types.size === 1 ? [...types][0] : 'section';
+};
+
+/** How a refusal lists a node: its number and title, whichever it has. */
+const label = (node, kind) => {
+  const ordinal = ordinalOf(node)?.display;
+  const title = node?.title ? `"${node.title}"` : undefined;
+  if (ordinal && title) return `${ordinal} ${title}`;
+  return ordinal ?? (title ? `${kind} ${title}` : `untitled ${kind}`);
+};
+
+/** The node a refusal is about, to start a sentence. */
+const subject = (node, kind) => {
+  if (node?.title) return `The ${kind} "${node.title}"`;
+  return ordinalOf(node)?.display ?? `This ${kind}`;
+};
+
+/**
  * Orders for `count` new frames placed after `afterFrameId`, between it and
  * the frame that follows, so nothing else in the scene has to move.
  */
-async function ordersAfter(projectId, sceneId, afterFrameId, count) {
-  const frames = (await callPaged(`/projects/${projectId}/nodes`, 'nodes', { parentId: sceneId, omitContent: true, limit: 10000 }))
-    .filter(isFrame)
-    .sort(byOrder);
+function ordersAfter(children, afterFrameId, count) {
+  const frames = children.filter(isFrame).sort(byOrder);
   const at = frames.findIndex((f) => f.id === afterFrameId);
   if (at === -1) {
-    throw new ToolError(Code.NOT_FOUND, `No frame ${afterFrameId} in this scene. Use read_scene to list its frames.`);
+    throw new ToolError(Code.NOT_FOUND, `No frame ${afterFrameId} under that node. Use read_scene to list its frames.`);
   }
   const from = frames[at].order ?? 0;
   const next = frames[at + 1];

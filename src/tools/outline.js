@@ -9,8 +9,9 @@ export const tools = [
     description:
       'The structure of a project: its parts, chapters and scenes, with status, ' +
       'word counts and each numbered node\'s ordinal ("Ep. 3", "Shot 10A"), which ' +
-      'ezQuill derives from position. Storyboard frames appear under their scene as ' +
-      'kind "frame" with their framing and line; they are pictures, not scenes to ' +
+      'ezQuill derives from position. Storyboard frames appear under their scene (or a ' +
+      'chapter written with no scenes) as kind "frame" with their framing and line; ' +
+      'they are pictures, not scenes to ' +
       'write, and their words are not counted. A comic\'s panels appear under their ' +
       'page as kind "panel" with ordinal, framing, box and a count of their lettering. ' +
       'Returns no prose, frame or panel descriptions, or lettering — use read_scene.',
