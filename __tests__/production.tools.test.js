@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import { TOOLS } from '../src/tools/index.js';
 import { withRequest } from '../src/lib/request-context.js';
+import { mergeTrims } from '../src/tools/write-production.js';
 
 const tool = (name) => TOOLS.find((t) => t.name === name);
 const run = (name, args) => withRequest({ token: 't' }, () => tool(name).handler(args));
@@ -524,6 +525,62 @@ describe('shot fields, the house template and rules, from an agent (ezquill #431
     const out = await run('manage_production', { projectId: 'p', action: 'record_cut', nodeId: 'ep5', data: { trims: [], publishes: [] } });
     assert.deepEqual(out.recorded, { id: 'cut-9', kind: 'cut', nodeId: 'ep5' });
     assert.equal(sent.at(-1).method, 'POST');
+  });
+
+  // ezquill #549: since #505 a shot may hold adjacent pieces of one take (a
+  // slice). A write to the shot replaces ALL its pieces, in place.
+  test('record_cut replaces every piece of a sliced shot, not just the first', async () => {
+    const t = (shot, take, i, o) => ({ shotNodeId: shot, takeId: take, inSeconds: i, outSeconds: o });
+    const stored = { trims: [t('s1', 'v1', 0, 3), t('s2', 'v2', 0, 2), t('s2', 'v2', 5, 7), t('s3', 'v3', 0, 4)], publishes: [] };
+    const sent = stub({
+      'GET /production-records': { records: [{ id: 'cut-1', kind: 'cut', nodeId: 'ep5', data: stored }] },
+      'PATCH /production-records/cut-1': (body) => ({ id: 'cut-1', kind: 'cut', nodeId: 'ep5', data: body.data }),
+    });
+    const out = await run('manage_production', {
+      projectId: 'p', action: 'record_cut', nodeId: 'ep5',
+      data: { trims: [t('s2', 'v22', 1, 6)] },
+    });
+    assert.deepEqual(out.trims, [t('s1', 'v1', 0, 3), t('s2', 'v22', 1, 6), t('s3', 'v3', 0, 4)]);
+    assert.deepEqual(sent.at(-1).body.data.trims, out.trims);
+  });
+});
+
+describe('mergeTrims (#549)', () => {
+  const t = (shot, take, i, o) => ({ shotNodeId: shot, takeId: take, inSeconds: i, outSeconds: o });
+
+  test('slicing a shot puts its pieces side by side where the shot was', () => {
+    const stored = [t('s1', 'v1', 0, 3), t('s2', 'v2', 0, 8), t('s3', 'v3', 0, 4)];
+    assert.deepEqual(mergeTrims(stored, [t('s2', 'v2', 0, 2), t('s2', 'v2', 5, 8)]), [
+      t('s1', 'v1', 0, 3), t('s2', 'v2', 0, 2), t('s2', 'v2', 5, 8), t('s3', 'v3', 0, 4),
+    ]);
+  });
+
+  test('re-slicing a sliced shot leaves none of its old pieces behind', () => {
+    const stored = [t('s2', 'v2', 0, 2), t('s2', 'v2', 3, 4), t('s2', 'v2', 5, 8), t('s3', 'v3', 0, 4)];
+    assert.deepEqual(mergeTrims(stored, [t('s2', 'v9', 0, 1), t('s2', 'v9', 2, 3)]), [
+      t('s2', 'v9', 0, 1), t('s2', 'v9', 2, 3), t('s3', 'v3', 0, 4),
+    ]);
+  });
+
+  test('a new shot is appended with all its pieces; other shots are untouched', () => {
+    const stored = [t('s1', 'v1', 0, 3)];
+    assert.deepEqual(mergeTrims(stored, [t('s4', 'v4', 0, 1), t('s4', 'v4', 2, 3)]), [
+      t('s1', 'v1', 0, 3), t('s4', 'v4', 0, 1), t('s4', 'v4', 2, 3),
+    ]);
+  });
+
+  test('pieces given for several shots each land in their own place', () => {
+    const stored = [t('s1', 'v1', 0, 3), t('s1', 'v1', 4, 5), t('s2', 'v2', 0, 2)];
+    assert.deepEqual(mergeTrims(stored, [t('s2', 'v20', 0, 1), t('s1', 'v10', 0, 9)]), [
+      t('s1', 'v10', 0, 9), t('s2', 'v20', 0, 1),
+    ]);
+  });
+
+  test('no trims given keeps the stored ones; nothing stored takes the given ones', () => {
+    const stored = [t('s1', 'v1', 0, 3)];
+    assert.deepEqual(mergeTrims(stored, undefined), stored);
+    assert.deepEqual(mergeTrims(undefined, [t('s1', 'v1', 0, 3)]), stored);
+    assert.deepEqual(mergeTrims(undefined, undefined), []);
   });
 
   // ezquill #458: the inline line diagnostic asked for a quote block that no
