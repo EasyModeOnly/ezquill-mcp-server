@@ -27,6 +27,11 @@
  * The web app's model is `lib/storyboard/board.ts`; this reads the same
  * fields and does not copy its code.
  */
+import { callPaged, call } from './api.js';
+import { ToolError, Code } from './errors.js';
+// A cycle (nodes.js imports isFrame from here), safe because neither module
+// uses the other's bindings while it is being evaluated, only inside functions.
+import { byOrder, ordinalOf } from './nodes.js';
 
 export const FRAME = 'frame';
 
@@ -63,6 +68,87 @@ export const sectionsAmong = (children) =>
   (Array.isArray(children) ? children : []).filter((c) => c && !NOT_SECTIONS.has(c.nodeType));
 
 export const isFrame = (node) => node?.nodeType === FRAME;
+
+/**
+ * Refuse a parent that does not take frames, before anything is sent. The ONE
+ * copy of the rule for every path that can put a frame somewhere: manage_storyboard
+ * add_frames, and manage_outline add (nodeType "frame") and move (task #881).
+ *
+ * Two checks. When `levels` is given, the parent's level must be one the
+ * SERVED registry puts frames under (a scene, a chapter), not whatever id was
+ * passed — and the top of the project is no level at all. And the parent must
+ * be the lowest prose level: a chapter with sections beneath it is above the
+ * board's groups, so a frame on it is not where the writer looks for that
+ * picture. That refusal names the sections, in order with their ids, so the
+ * model can pick the one the picture belongs to rather than guess.
+ *
+ * `count` and `verb` only word the refusal ("Add these frames…", "Move this
+ * frame…"). Returns the parent's children, which add_frames reuses to place
+ * afterFrameId, so the check costs no extra request there.
+ */
+export async function requireFrameHolder(projectId, parentId, levels, { count = 2, verb = 'Add' } = {}) {
+  const one = count === 1;
+  const these = one ? 'this frame' : 'these frames';
+  const picture = one ? 'it pictures' : 'they picture';
+
+  const target = parentId ? await call(`/projects/${projectId}/nodes/${parentId}`) : null;
+  if (levels) {
+    const parents = levels.filter((l) => (l.children ?? []).includes(FRAME)).map((l) => l.key);
+    if (!target || !parents.includes(target.nodeType)) {
+      const where = target ? `that id is a ${target.nodeType ?? 'node'}` : 'the top level of the project is not one';
+      throw new ToolError(
+        Code.REQUEST_FAILED,
+        `Frames go under a ${parents.join(' or ') || 'scene'}, and ${where}. ` +
+          `${WHERE_FRAMES_GO} Pass the scene ${one ? 'the frame pictures' : 'the frames picture'}.`,
+        { nodeType: target?.nodeType ?? null, parents }
+      );
+    }
+  }
+  if (!target) return [];
+
+  const children = await callPaged(`/projects/${projectId}/nodes`, 'nodes', { parentId, omitContent: true, limit: 10000 });
+  const sections = sectionsAmong(children).sort(byOrder);
+  if (sections.length === 0) return children;
+
+  const kind = target.nodeType;
+  const shown = sections.slice(0, MAX_NAMED);
+  const more = sections.length - shown.length;
+  throw new ToolError(
+    Code.REQUEST_FAILED,
+    `${subject(target, kind)} has ${sections.length === 1 ? 'a' : sections.length} ` +
+      `${sections.length === 1 ? sectionNoun(sections) : `${sectionNoun(sections)}s`} beneath it, so it takes no frames ` +
+      `itself. ${WHERE_FRAMES_GO} ${verb} ${these} to the one ${picture}: ` +
+      shown.map((n) => `${label(n, n.nodeType)} (nodeId ${n.id})`).join('; ') +
+      (more > 0 ? `; and ${more} more (get_outline lists them).` : '.'),
+    {
+      nodeType: kind,
+      sections: sections.map((n) => ({ id: n.id, nodeType: n.nodeType, title: n.title || undefined, ordinal: ordinalOf(n)?.display })),
+    }
+  );
+}
+
+/** Sections one refusal names before saying how many more there are. */
+const MAX_NAMED = 20;
+
+/** "scene", or the common level of the sections when they are not scenes. */
+const sectionNoun = (sections) => {
+  const types = new Set(sections.map((n) => n.nodeType));
+  return types.size === 1 ? [...types][0] : 'section';
+};
+
+/** How a refusal lists a node: its number and title, whichever it has. */
+const label = (node, kind) => {
+  const ordinal = ordinalOf(node)?.display;
+  const title = node?.title ? `"${node.title}"` : undefined;
+  if (ordinal && title) return `${ordinal} ${title}`;
+  return ordinal ?? (title ? `${kind} ${title}` : `untitled ${kind}`);
+};
+
+/** The node a refusal is about, to start a sentence. */
+const subject = (node, kind) => {
+  if (node?.title) return `The ${kind} "${node.title}"`;
+  return ordinalOf(node)?.display ?? `This ${kind}`;
+};
 
 /** The framings the app's picker offers, wide to tight. Advisory: any text is stored. */
 export const FRAMINGS = ['Wide', 'Medium', 'Close-up', 'Extreme close-up', 'Over-the-shoulder', 'Insert'];
