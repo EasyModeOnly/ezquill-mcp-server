@@ -585,7 +585,8 @@ const defined = [
           // An episode has ONE live cut (a unique index), so a second POST is
           // refused — and the episode view used to give no id to update it by
           // (ezquill #451). So record_cut extends the cut that is there: a
-          // trim replaces that shot's trim and keeps the others, a publish
+          // shot's trims replace every piece of that shot (mergeTrims, #549)
+          // and keep the other shots', a publish
           // replaces that destination's, and every other key is laid over.
           const existing = await call(`/projects/${projectId}/production-records`, {
             query: { nodeId: args.nodeId, kind: 'cut' },
@@ -1045,9 +1046,47 @@ export function mergeCut(stored, given) {
   return {
     ...stored,
     ...given,
-    trims: byKey(stored.trims, 'shotNodeId', given.trims),
+    trims: mergeTrims(stored.trims, given.trims),
     publishes: byKey(stored.publishes, 'destination', given.publishes),
   };
+}
+
+/**
+ * Trims merged by SHOT, not by row (ezquill #549). Since #505 a shot may hold
+ * several trims — adjacent pieces of one take, a slice — so the trims given
+ * for a shot are ALL of its pieces: they replace every piece the cut holds for
+ * it, in the place its first piece held, and stay side by side. Replacing only
+ * the first matching row, as this used to, left a slice's later pieces behind:
+ * stale footage the writer never asked to keep, or — with a new take — a cut
+ * the API refuses for slicing a shot into two takes. A shot the cut does not
+ * trim yet is appended, as before.
+ *
+ * The shape is unchanged: one trim for a sliced shot un-slices it, and a slice
+ * is written by giving its pieces in order. Nothing is lost by merging this
+ * way, because a piece has no identity beyond its shot and its position — the
+ * caller that names a shot is stating what that shot contributes to the cut.
+ */
+export function mergeTrims(stored, given) {
+  const out = Array.isArray(stored) ? stored : [];
+  if (!Array.isArray(given)) return out;
+  const pieces = new Map();
+  for (const trim of given) {
+    const shot = trim?.shotNodeId;
+    if (!pieces.has(shot)) pieces.set(shot, []);
+    pieces.get(shot).push(trim);
+  }
+  const merged = [];
+  for (const trim of out) {
+    const shot = trim?.shotNodeId;
+    if (!pieces.has(shot)) merged.push(trim);
+    else if (pieces.get(shot) !== null) {
+      // The shot's first stored piece: its new pieces go here, once.
+      merged.push(...pieces.get(shot));
+      pieces.set(shot, null);
+    }
+  }
+  for (const rest of pieces.values()) if (rest !== null) merged.push(...rest);
+  return merged;
 }
 
 /**
