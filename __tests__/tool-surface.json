@@ -48,6 +48,13 @@
         "projectId"
       ]
     },
+    "get_reader_report": {
+      "params": [
+        "nodeId",
+        "persona",
+        "projectId"
+      ]
+    },
     "get_timeline": {
       "params": [
         "mode",
@@ -168,6 +175,21 @@
         "reply",
         "resolve",
         "unresolve"
+      ]
+    },
+    "manage_first_reader": {
+      "params": [
+        "action",
+        "budgetCredits",
+        "persona",
+        "projectId",
+        "runId"
+      ],
+      "actions": [
+        "cancel",
+        "continue",
+        "estimate",
+        "start"
       ]
     },
     "manage_outline": {
@@ -292,6 +314,24 @@
         "delete",
         "restore",
         "update"
+      ]
+    },
+    "read_as_first_reader": {
+      "params": [
+        "action",
+        "answer",
+        "leaseToken",
+        "model",
+        "persona",
+        "projectId",
+        "runId",
+        "seq"
+      ],
+      "actions": [
+        "cancel",
+        "next",
+        "start",
+        "submit"
       ]
     },
     "read_scene": {

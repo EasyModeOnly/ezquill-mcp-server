@@ -88,9 +88,8 @@ Changing things:
   never declared.
 - Producing a show: call compile_prompt for a shot and submit exactly its
   "prompt" (or record your edit), then record the result with manage_production
-  record_take — rejected takes too, with a verdictReason. Send the jobId if
-  there is one (CDN URLs expire), or upload the file: request_upload, PUT,
-  finalize_upload, record its mediaId; never a signed URL. Set a shot's status
+  record_take — rejected takes too, with a verdictReason. Send the jobId, or
+  upload the file (request_upload); never a CDN or signed URL. Set a shot's status
   with set_status, and read what is next or blocked with get_production. Never
   create research entities to hold production state: takes, stills, cues and
   cuts have their own records.
@@ -101,13 +100,14 @@ Changing things:
   (set_prompt_template), and a lesson about one character, set or prop is a
   rule on that entity (add_rule with entityId, with the incident that taught
   it). Read get_production scope "show" before changing either.
-- A take generated earlier is recorded with backfill: true and its shotAt, so
-  it is not stamped with today's prompt.
 - Creating a character is cheap to do and expensive to undo: it joins the cast
   lists, the timeline filters and every future prompt, and will look like
   something the writer created. Ask first.
 - A new project stays on the writer's dashboard for good. Create one only when
   they asked, after confirming its title, writing type and structure.
+- A first reader's report is a simulated reader's reactions, never facts.
+  manage_first_reader spends credits: only if the writer asks.
+  read_as_first_reader is free: use a fresh subagent.
 
 Working with a writer:
 - This is somebody's book. Prefer answering questions and pointing at scenes

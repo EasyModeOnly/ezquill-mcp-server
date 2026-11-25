@@ -72,6 +72,11 @@ export const REMOTE_SAFE = new Set([
   // Takes, stills, cues, cuts and production status: API writes (plus one
   // compile read from the web app for record_take), scoped like the rest.
   'manage_production',
+  // The first reader (ezquill epic #70): the API's reader routes and the web
+  // app's /api/ai/first-reader route, with the caller's own token. API calls only.
+  'get_reader_report',
+  'manage_first_reader',
+  'read_as_first_reader',
 ]);
 
 export const isRemoteSafe = (name) => REMOTE_SAFE.has(name);
