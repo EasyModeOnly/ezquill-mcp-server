@@ -35,11 +35,27 @@ import { assembleProse, isBlock } from '../lib/nodes.js';
 import { refuseUnmigrated, sectionBlocks } from '../lib/sections.js';
 import { anchorAt, occurrences, textOf } from '../lib/prose.js';
 
-/** One block is one top-level paragraph. */
+/**
+ * The Tiptap mark ezQuill records AI-written text with (ezquill epic #69).
+ * Its name is fixed by the editor (`AI_TEXT_MARK`) and by the API's generated
+ * `nodes.ai_chars`, which counts the characters under it. Never rename it.
+ */
+const AI_TEXT_MARK = 'aiText';
+
+/**
+ * One block is one top-level paragraph.
+ *
+ * Its text is marked as AI's: everything this tool writes was written by the
+ * agent calling it, and this goes straight to `PUT /blocks`, never through the
+ * editor that marks accepted AI text (ezquill #888). The writer's share of
+ * their own manuscript is counted from this mark.
+ */
 const paragraph = (text) => ({
   document: {
     type: 'doc',
-    content: [{ type: 'paragraph', content: [{ type: 'text', text }] }],
+    content: [
+      { type: 'paragraph', content: [{ type: 'text', text, marks: [{ type: AI_TEXT_MARK }] }] },
+    ],
   },
   plainText: text,
 });
@@ -259,6 +275,11 @@ async function propose({ projectId, nodeId, quote, replacement, note }) {
       // positions stop matching it.
       anchor,
       replacement,
+      // The comment is posted under the writer's own token, so its author is
+      // a person either way. This is what tells ezQuill the words are an AI
+      // assistant's, so accepting the proposal marks them as AI text
+      // (ezquill #888). Needs an API that has comments.origin (000071).
+      origin: 'ai',
     },
   });
 
