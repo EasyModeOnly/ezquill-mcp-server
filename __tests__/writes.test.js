@@ -30,6 +30,10 @@ function stub(routes) {
 const realFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = realFetch; });
 
+/** The marks on each text leaf of a sent block's document, paragraph by paragraph. */
+const marksOf = (sentBlock) =>
+  sentBlock.content.document.content.flatMap((p) => (p.content ?? []).map((leaf) => leaf.marks ?? []));
+
 const block = (id, over = {}) => ({ id, nodeType: 'block', order: 0, hasProse: false, ...over });
 const written = (id, text, order, version) =>
   block(id, { order, hasProse: true, contentVersion: version, content: { plainText: text } });
@@ -48,6 +52,25 @@ describe('write_draft append — the reconcile is composed, never exposed', () =
     const put = sent.find((r) => r.method === 'PUT');
     assert.equal(put.body.blocks.length, 3, 'the two existing blocks must be resent');
     assert.deepEqual(put.body.blocks.slice(0, 2).map((b) => b.id), ['b1', 'b2']);
+  });
+
+  // ezquill #888: this goes straight to PUT /blocks, never through the editor
+  // that marks accepted AI text, so the connector marks its own paragraphs.
+  // The API counts nodes.ai_chars from exactly this mark.
+  test('appended paragraphs arrive marked as AI text', async () => {
+    const sent = stub({
+      '/nodes': { nodes: [written('b1', 'One.', 1, 4)], hasMore: false },
+      'PUT /blocks': (body) => ({ blocks: body.blocks, refused: [], removed: [] }),
+    });
+
+    await run('write_draft', { projectId: 'p', nodeId: 's', action: 'append', paragraphs: ['Two.', 'Three.'] });
+
+    const added = sent.find((r) => r.method === 'PUT').body.blocks.filter((b) => b.content);
+    assert.equal(added.length, 2);
+    for (const b of added) {
+      assert.deepEqual(marksOf(b), [[{ type: 'aiText' }]]);
+      assert.equal(b.content.document.content[0].content[0].text, b.content.plainText);
+    }
   });
 
   test('unchanged blocks are sent WITHOUT content', async () => {
@@ -181,6 +204,7 @@ describe('write_draft fill_plan', () => {
     assert.equal(target.ifContentVersion, 3, 'the target must be guarded');
     assert.equal(target.content.plainText, 'Written at last.');
     assert.ok(!('content' in blocks.find((b) => b.id === 'b2')), 'the other block is untouched');
+    assert.deepEqual(marksOf(target), [[{ type: 'aiText' }]], 'the written paragraph is marked as AI text');
   });
 
   test('refuses a block that is already written', async () => {
@@ -211,6 +235,9 @@ describe('write_draft revise — proposes, never writes', () => {
     const post = sent.find((r) => r.method === 'POST');
     assert.equal(post.body.replacement, 'The tide fled.');
     assert.equal(post.body.anchor.text, 'The tide went out.');
+    // Posted under the writer's token, so only this says an AI wrote it, and
+    // accepting it in ezQuill marks the words as AI text (ezquill #888).
+    assert.equal(post.body.origin, 'ai');
     assert.match(result.status, /not applied/i);
 
     // No write to the manuscript itself.
