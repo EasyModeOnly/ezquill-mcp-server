@@ -64,7 +64,8 @@
       "params": [
         "nodeId",
         "persona",
-        "projectId"
+        "projectId",
+        "runId"
       ]
     },
     "get_thread_map_data": {

@@ -82,6 +82,37 @@ function estimateView(body) {
   return out;
 }
 
+/**
+ * `next`, taking the reading back from a lost session when that is what is
+ * in the way (ezquill #918).
+ *
+ * An agent that lost its leaseToken (a new conversation, a dropped
+ * subagent) is otherwise refused for up to 15 minutes by its own dead
+ * session's lease. So when `next` is sent WITHOUT a token and refused because
+ * another session holds the reading, it asks once more with `takeOver`. Only
+ * the person who started the reading can take it over; the server enforces
+ * that, and anyone else gets its refusal. With a token, nothing is retried: a
+ * token that no longer matches means a session that may still be alive, and
+ * two of the writer's own sessions racing must keep refusing each other.
+ *
+ * Go names no code for a held lease (it is a plain 409 "conflict", like a
+ * closed run or a wrong seq), so the words are what tell them apart. A change
+ * of wording makes this a plain 409 again, which is where it started.
+ */
+async function claimNext(projectId, runId, leaseToken) {
+  const body = { action: 'next', projectId, runId, ...(leaseToken ? { leaseToken } : {}) };
+  try {
+    return await route(body);
+  } catch (err) {
+    if (leaseToken || !heldElsewhere(err)) throw err;
+    return { ...(await route({ ...body, takeOver: true })), tookOver: true };
+  }
+}
+
+function heldElsewhere(err) {
+  return err instanceof ToolError && err.detail?.status === 409 && /another session/i.test(err.message);
+}
+
 async function runIdOr(args, driver) {
   if (args.runId) return args.runId;
   return findOpenRun(args.projectId, { driver, persona: args.persona });
@@ -163,8 +194,8 @@ const readAsFirstReader = {
     '(who you are and how to read), `reading` (your notes so far, then the prose), the JSON `schema` and progress, or ' +
     'done. Answer as that reader, in the first person, as reactions and never advice, with exactly the JSON the schema ' +
     'asks for, quoting the prose word for word. submit (runId, seq, leaseToken, answer): sends it; if it is refused, ' +
-    'fix the listed errors and submit once more. Then next again, until done. Keep the leaseToken: without it the ' +
-    'reading stays locked for up to 15 minutes. cancel (runId or persona) stops it. Story projects only.',
+    'fix the listed errors and submit once more. Then next again, until done. Keep the leaseToken; if it is lost, next ' +
+    'without one takes the reading back from your old session. cancel (runId or persona) stops it. Story projects only.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -205,18 +236,16 @@ const readAsFirstReader = {
       }
       case 'next': {
         const runId = await runIdOr(args, 'agent');
-        const body = await route({
-          action: 'next',
-          projectId,
-          runId,
-          ...(args.leaseToken ? { leaseToken: args.leaseToken } : {}),
-        });
+        const body = await claimNext(projectId, runId, args.leaseToken);
         if (body?.done) return { done: true, run: runView(body.run), next: 'The reading is finished.' };
         return {
           runId: body.runId,
           seq: body.seq,
           leaseToken: body.leaseToken,
           leaseUntil: body.leaseUntil,
+          ...(body.tookOver
+            ? { tookOver: 'The reading was held by an earlier session of yours; it is yours again, and that session can no longer submit.' }
+            : {}),
           progress: body.reading?.progress
             ? `section ${body.reading.progress.seq + 1} of ${body.reading.progress.total}`
             : undefined,

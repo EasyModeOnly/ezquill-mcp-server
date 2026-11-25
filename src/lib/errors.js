@@ -66,6 +66,14 @@ export const Code = {
    * has simply not landed yet, and finalizing again afterwards is the fix.
    */
   UPLOAD_INCOMPLETE: 'UPLOAD_INCOMPLETE',
+  /**
+   * Too many calls in a short time (a 429 the retries in api.js could not wait
+   * out). Its own code, never NOT_FOUND or REQUEST_FAILED: a throttle says
+   * nothing about the project, and an agent told "not found" stops looking for
+   * something that exists. Nothing was done, so the same call is safe to make
+   * again after the wait (`retryAfterSeconds` when the server named one).
+   */
+  RATE_LIMITED: 'RATE_LIMITED',
   /** Anything the API refused that does not fit above. */
   REQUEST_FAILED: 'REQUEST_FAILED',
 };
@@ -101,6 +109,7 @@ export function codeForStatus(status) {
   if (status === 403) return Code.FORBIDDEN_SCOPE;
   if (status === 404) return Code.NOT_FOUND;
   if (status === 409) return Code.STALE_CONTENT;
+  if (status === 429) return Code.RATE_LIMITED;
   if (status === 503) return Code.SEARCH_UNAVAILABLE;
   return Code.REQUEST_FAILED;
 }

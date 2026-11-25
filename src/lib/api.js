@@ -94,11 +94,24 @@ export async function call(path, opts = {}) {
     // body's code says which (apierrors.NewPlanLimit).
     const code =
       response.status === 403 && body?.error?.code === 'plan_limit' ? Code.PLAN_LIMIT : codeForStatus(response.status);
-    const err = new ToolError(code, message, {
-      status: response.status,
-      ...(field ? { field } : {}),
-      ...(attempts > 1 ? { attempts } : {}),
-    });
+    // A throttle that outlasted the retries is said as one (RATE_LIMITED), in
+    // words an agent cannot take for a fact about the project: read as "not
+    // found", it sends the agent off looking for a project that exists.
+    const retryAfter = response.status === 429 ? retryAfterMs(response.headers?.get?.('Retry-After')) : null;
+    const wait = retryAfter !== null ? Math.ceil(retryAfter / 1000) : null;
+    const err = new ToolError(
+      code,
+      response.status === 429
+        ? `ezQuill is limiting how fast these calls can be made (${message}). Nothing was done: wait ` +
+            `${wait !== null ? `${wait} seconds` : 'a minute'} and make the same call again.`
+        : message,
+      {
+        status: response.status,
+        ...(field ? { field } : {}),
+        ...(attempts > 1 ? { attempts } : {}),
+        ...(wait !== null ? { retryAfterSeconds: wait } : {}),
+      }
+    );
     // The parsed body rides on the error for the few callers whose failure
     // body IS the answer — a dictionary 404 carries the spelling suggestions.
     // A property rather than `detail`, because detail is spread into the tool

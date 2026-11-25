@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import { call, retry } from '../src/lib/api.js';
 import { withRequest } from '../src/lib/request-context.js';
+import { Code } from '../src/lib/errors.js';
 
 const realFetch = globalThis.fetch;
 const realRetry = { ...retry };
@@ -76,6 +77,27 @@ describe('call() retries a 429', () => {
       return true;
     });
     assert.equal(sent.length, 3);
+  });
+
+  test('a throttle that outlasts the retries is RATE_LIMITED, says so, and names the wait', async () => {
+    script(tooMany('2'));
+    await assert.rejects(run('/x'), (err) => {
+      assert.equal(err.code, Code.RATE_LIMITED);
+      assert.match(err.message, /limiting how fast/);
+      assert.match(err.message, /Nothing was done: wait 2 seconds/);
+      assert.equal(err.detail.retryAfterSeconds, 2);
+      return true;
+    });
+  });
+
+  test('without a Retry-After the throttle still reads as one, not as not-found', async () => {
+    script(tooMany(undefined));
+    await assert.rejects(run('/api/ai/first-reader', { app: true, method: 'POST', body: {} }), (err) => {
+      assert.equal(err.code, Code.RATE_LIMITED);
+      assert.match(err.message, /wait a minute/);
+      assert.equal('retryAfterSeconds' in err.detail, false);
+      return true;
+    });
   });
 
   test('a missing Retry-After falls back to a default wait', async () => {
