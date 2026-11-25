@@ -3,6 +3,10 @@ import assert from 'node:assert/strict';
 
 import { TOOLS } from '../src/tools/index.js';
 import { withRequest } from '../src/lib/request-context.js';
+import { retry } from '../src/lib/api.js';
+import { Code } from '../src/lib/errors.js';
+
+const realSleep = retry.sleep;
 
 const tool = (name) => TOOLS.find((t) => t.name === name);
 const run = (name, args) => withRequest({ token: 't' }, () => tool(name).handler(args));
@@ -50,15 +54,86 @@ const question = (over = {}) => ({
 });
 
 describe('get_reader_report', () => {
-  test('is read-only and reads the API report, passing nodeId and persona', async () => {
+  test("is read-only and reads the route's report action, passing nodeId, persona and runId", async () => {
     assert.equal(tool('get_reader_report').annotations.readOnlyHint, true);
-    const sent = stub({ '/reader-report': { readings: [] } });
-    const out = await run('get_reader_report', { projectId: 'p', nodeId: 'n1', persona: 'casual' });
-    assert.equal(sent[0].path, '/api/v1/projects/p/reader-report');
-    assert.equal(sent[0].query.get('nodeId'), 'n1');
-    assert.equal(sent[0].query.get('persona'), 'casual');
+    const sent = stub({ 'POST /api/ai/first-reader': { readings: [] } });
+    const out = await run('get_reader_report', { projectId: 'p', nodeId: 'n1', persona: 'casual', runId: 'r0' });
+    // The web app's route, not Go's report: only the route knows what changed since (#918).
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].path, '/api/ai/first-reader');
+    assert.notEqual(sent[0].host, 'api.ezquill.com');
+    assert.deepEqual(sent[0].body, { action: 'report', projectId: 'p', persona: 'casual', nodeId: 'n1', runId: 'r0' });
     assert.deepEqual(out.readings, []);
     assert.match(out.about, /simulated/i);
+  });
+
+  test('sends only what it was given', async () => {
+    const sent = stub({ 'POST /api/ai/first-reader': { readings: [] } });
+    await run('get_reader_report', { projectId: 'p' });
+    assert.deepEqual(sent[0].body, { action: 'report', projectId: 'p' });
+  });
+
+  test('a section changed since it was read is marked, with a note to say so', async () => {
+    stub({
+      'POST /api/ai/first-reader': {
+        readings: [{
+          persona: 'genre',
+          run: runRow({ status: 'completed', nextSeq: 2, total: 2 }),
+          summary: {
+            units: [
+              { seq: 0, nodeId: 'n1', part: 1, wordCount: 900, engagement: 4, openQuestions: 1, stale: false },
+              { seq: 1, nodeId: 'n2', part: 1, wordCount: 1200, engagement: 2, openQuestions: 2, stale: true },
+            ],
+            unanswered: [], dormant: [], answered: 0, abandoned: 0,
+          },
+        }],
+      },
+    });
+    const r = (await run('get_reader_report', { projectId: 'p' })).readings[0];
+    assert.equal(r.summary.units[0].changedSinceRead, undefined, 'an unchanged unit carries no flag');
+    assert.equal(r.summary.units[1].changedSinceRead, true);
+    assert.match(r.changed, /earlier draft/);
+  });
+
+  test('one changed section: flagged on the section', async () => {
+    stub({
+      'POST /api/ai/first-reader': {
+        readings: [{
+          persona: 'casual',
+          run: runRow({ persona: 'casual' }),
+          node: { nodeId: 'n2', stale: true, snapshots: [{ seq: 1, nodeId: 'n2', part: 1, wordCount: 10, engagement: 3 }] },
+        }],
+      },
+    });
+    const r = (await run('get_reader_report', { projectId: 'p', nodeId: 'n2' })).readings[0];
+    assert.equal(r.section.changedSinceRead, true);
+    assert.match(r.changed, /earlier draft/);
+  });
+
+  test('nothing changed: no flag and no note', async () => {
+    stub({
+      'POST /api/ai/first-reader': {
+        readings: [{ persona: 'casual', run: runRow(), node: { nodeId: 'n2', stale: false, snapshots: [] } }],
+      },
+    });
+    const r = (await run('get_reader_report', { projectId: 'p', nodeId: 'n2' })).readings[0];
+    assert.equal(r.section.changedSinceRead, undefined);
+    assert.equal(r.changed, undefined);
+  });
+
+  test('a throttle is RATE_LIMITED, never "not found"', async () => {
+    retry.sleep = async () => {};
+    try {
+      stub({ 'POST /api/ai/first-reader': { __status: 429, body: { error: 'Too many requests' } } });
+      await assert.rejects(run('get_reader_report', { projectId: 'p' }), (err) => {
+        assert.equal(err.code, Code.RATE_LIMITED);
+        assert.match(err.message, /limiting how fast/);
+        assert.match(err.message, /Nothing was done/);
+        return true;
+      });
+    } finally {
+      retry.sleep = realSleep;
+    }
   });
 
   test('says it is simulated, in the description too', () => {
@@ -68,7 +143,7 @@ describe('get_reader_report', () => {
 
   test('the whole-book summary keeps the series and questions, without the bookkeeping', async () => {
     stub({
-      '/reader-report': {
+      'POST /api/ai/first-reader': {
         readings: [{
           persona: 'genre',
           run: runRow({ status: 'completed', nextSeq: 10 }),
@@ -100,7 +175,7 @@ describe('get_reader_report', () => {
 
   test('one section: parts, predictions, confusions and its questions', async () => {
     stub({
-      '/reader-report': {
+      'POST /api/ai/first-reader': {
         readings: [{
           persona: 'casual',
           run: runRow({ persona: 'casual', driver: 'agent', model: 'agent:claude-opus-5-5', budgetCredits: undefined, spentCredits: 0 }),
@@ -261,6 +336,59 @@ describe('read_as_first_reader', () => {
     assert.equal(out.instructions, 'You are a reader');
     assert.equal(out.reading, 'Chapter 5\n\nProse.');
     assert.deepEqual(out.schema, { type: 'object' });
+  });
+
+  test('next without a token, refused because another session holds it, takes it over once', async () => {
+    const sent = stub({
+      'POST /api/ai/first-reader': (body) =>
+        body.takeOver
+          ? { runId: 'r1', seq: 4, leaseToken: 'new', leaseUntil: 'soon', reading: { progress: { seq: 4, total: 10 } } }
+          : {
+              __status: 409,
+              body: {
+                error: 'this reading is being read right now in another session; try again in a few minutes, or take it over if that session was yours and is gone',
+                code: 'conflict',
+              },
+            },
+    });
+    const out = await run('read_as_first_reader', { projectId: 'p', action: 'next', runId: 'r1' });
+    assert.equal(sent.length, 2);
+    assert.equal(sent[0].body.takeOver, undefined, 'the first ask does not take over');
+    assert.deepEqual(sent[1].body, { action: 'next', projectId: 'p', runId: 'r1', takeOver: true });
+    assert.equal(out.leaseToken, 'new');
+    assert.equal(out.seq, 4);
+    assert.match(out.tookOver, /yours again/);
+  });
+
+  test('next WITH a token never takes over: that session may still be alive', async () => {
+    const sent = stub({
+      'POST /api/ai/first-reader': { __status: 409, body: { error: 'this reading is being read right now in another session; try again in a few minutes' } },
+    });
+    await assert.rejects(
+      run('read_as_first_reader', { projectId: 'p', action: 'next', runId: 'r1', leaseToken: 'old' }),
+      (err) => err.code === Code.STALE_CONTENT && /another session/.test(err.message)
+    );
+    assert.equal(sent.length, 1);
+  });
+
+  test('next does not take over for any other refusal', async () => {
+    const sent = stub({ 'POST /api/ai/first-reader': { __status: 409, body: { error: 'this reading is cancelled, so it cannot go on' } } });
+    await assert.rejects(run('read_as_first_reader', { projectId: 'p', action: 'next', runId: 'r1' }), /cancelled/);
+    assert.equal(sent.length, 1);
+  });
+
+  test("a takeover the server refuses (not the reading's starter) comes back as that refusal", async () => {
+    const sent = stub({
+      'POST /api/ai/first-reader': (body) =>
+        body.takeOver
+          ? { __status: 403, body: { error: 'only the person who started this reading can take it over from another session' } }
+          : { __status: 409, body: { error: 'this reading is being read right now in another session' } },
+    });
+    await assert.rejects(
+      run('read_as_first_reader', { projectId: 'p', action: 'next', runId: 'r1' }),
+      (err) => err.code === Code.FORBIDDEN_SCOPE && /only the person who started/.test(err.message)
+    );
+    assert.equal(sent.length, 2);
   });
 
   test('next at the end says done', async () => {
