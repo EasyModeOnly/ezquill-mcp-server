@@ -29,11 +29,10 @@
  * accept one.
  */
 import { randomUUID } from 'node:crypto';
-import { call, callPaged } from '../lib/api.js';
+import { call } from '../lib/api.js';
 import { ToolError, Code } from '../lib/errors.js';
-import { assembleProse, isBlock } from '../lib/nodes.js';
 import { refuseUnmigrated, sectionBlocks } from '../lib/sections.js';
-import { anchorAt, occurrences, textOf } from '../lib/prose.js';
+import { locateQuote } from '../lib/quote-target.js';
 
 /**
  * The Tiptap mark ezQuill records AI-written text with (ezquill epic #69).
@@ -219,52 +218,12 @@ async function propose({ projectId, nodeId, quote, replacement, note }) {
     );
   }
 
-  const [node, children] = await Promise.all([
-    call(`/projects/${projectId}/nodes/${nodeId}`),
-    callPaged(`/projects/${projectId}/nodes`, 'nodes', { parentId: nodeId, limit: 10000 }),
-  ]);
-  const blocks = children.filter(isBlock);
-  const prose = assembleProse(node, blocks);
-
-  const first = prose.indexOf(quote);
-  if (first === -1) {
-    throw new ToolError(
-      Code.REQUEST_FAILED,
-      'Those words are not in this scene. Quote the text exactly as read_scene returned it.'
-    );
-  }
-  if (prose.indexOf(quote, first + 1) !== -1) {
-    throw new ToolError(
-      Code.REQUEST_FAILED,
-      'Those words appear more than once in this scene, so the suggestion would be ambiguous. ' +
-        'Quote a longer passage that occurs only once.'
-    );
-  }
-
   // Since prose moved into paragraph blocks, a comment belongs to the BLOCK
   // its words are in, anchored in that block's own document — that is the
   // node the Comments panel lists (ezquill #456). Posted on the scene, the
-  // suggestion existed and nobody could see it. A scene whose prose is still
-  // its own document keeps the old shape.
-  let target = nodeId;
-  let anchor = { from: first, to: first + quote.length, text: quote };
-  if (blocks.some((b) => b.hasProse)) {
-    const textIn = (b) => (b.content?.document ? textOf(b.content.document) : (b.content?.plainText ?? ''));
-    const holder = blocks.find((b) => occurrences(textIn(b), quote) === 1);
-    if (!holder) {
-      throw new ToolError(
-        Code.REQUEST_FAILED,
-        'Those words run across more than one paragraph. Quote a passage inside a single paragraph, ' +
-          'and propose a change to each paragraph separately.'
-      );
-    }
-    const doc = holder.content.document;
-    target = holder.id;
-    // Without the document (a listing that withheld it), a block is one
-    // paragraph of text, whose first character is position 1.
-    const at = textIn(holder).indexOf(quote);
-    anchor = doc ? anchorAt(doc, at, quote) : { from: at + 1, to: at + 1 + quote.length, text: quote };
-  }
+  // suggestion existed and nobody could see it. The quote must occur exactly
+  // once in the section and inside one paragraph (lib/quote-target.js).
+  const { target, anchor } = await locateQuote(projectId, nodeId, quote);
 
   const comment = await call(`/projects/${projectId}/nodes/${target}/comments`, {
     method: 'POST',

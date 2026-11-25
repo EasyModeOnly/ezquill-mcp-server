@@ -97,6 +97,8 @@ function summary(s) {
 
 function question(q) {
   const out = {
+    // The id manage_story_thread's link_reader_question takes.
+    questionId: q.id,
     question: q.text,
     kind: q.kind,
     status: q.status,

@@ -90,6 +90,8 @@ describe('get_reader_report', () => {
     assert.deepEqual(r.summary.units[0], { seq: 0, nodeId: 'n1', words: 2000, engagement: 4, openQuestions: 2 });
     assert.equal(r.summary.unanswered[0].question, 'Who sent the letter?');
     assert.equal(r.summary.unanswered[0].raisedBy, 'a letter with no name');
+    // The id manage_story_thread's link_reader_question takes (#915).
+    assert.equal(r.summary.unanswered[0].questionId, 'q-id');
     assert.equal(r.summary.unanswered[0].history, undefined, 'per-unit history is left out');
     assert.equal(r.summary.dormant[0].status, 'dormant');
     assert.equal(r.summary.answered, 3);

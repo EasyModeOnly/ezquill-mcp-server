@@ -12,6 +12,7 @@ import { tools as timeline } from './timeline.js';
 import { tools as production } from './production.js';
 import { tools as feedback } from './feedback.js';
 import { tools as reader } from './reader.js';
+import { tools as storyThreads } from './story-threads.js';
 import { tools as dictionary } from './dictionary.js';
 import { tools as writeProjects } from './write-projects.js';
 import { tools as writeOutline } from './write-outline.js';
@@ -23,6 +24,7 @@ import { tools as writeTimeline } from './write-timeline.js';
 import { tools as writeProduction } from './write-production.js';
 import { tools as writeFeedback } from './write-feedback.js';
 import { tools as writeReader } from './write-reader.js';
+import { tools as writeStoryThreads } from './write-story-threads.js';
 import { tools as auth } from './auth.js';
 
 export const TOOLS = [
@@ -38,6 +40,9 @@ export const TOOLS = [
   // A simulated first reader's report (ezquill epic #70): reactions, beside
   // the collaborators' comments rather than among the manuscript reads.
   ...reader,
+  // Story threads and their map (ezquill epic #71): derived by the API, read
+  // here as the writer's own map reads them.
+  ...storyThreads,
   // Last among the reads: the dictionary is reference, not the manuscript —
   // something an agent reaches for mid-draft, not where it starts.
   ...dictionary,
@@ -60,6 +65,9 @@ export const TOOLS = [
   ...writeFeedback,
   // Driving a first reader: ezQuill's (spends credits) or the agent's own.
   ...writeReader,
+  // Story threads: proposals the writer accepts in ezQuill, and the one tool
+  // that decides them for the writer when asked.
+  ...writeStoryThreads,
   // Last: signing in is not what the surface is FOR, and a client that shows
   // tools in order should lead with the manuscript.
   ...auth,

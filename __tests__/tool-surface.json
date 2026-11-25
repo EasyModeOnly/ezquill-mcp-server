@@ -1,6 +1,18 @@
 {
   "version": "0.17.1",
   "tools": {
+    "add_thread_touch": {
+      "params": [
+        "nodeId",
+        "note",
+        "planned",
+        "projectId",
+        "quote",
+        "rationale",
+        "storyThreadId",
+        "type"
+      ]
+    },
     "authenticate": {
       "params": [
         "includeDelete"
@@ -55,6 +67,12 @@
         "projectId"
       ]
     },
+    "get_thread_map_data": {
+      "params": [
+        "projectId",
+        "seriesId"
+      ]
+    },
     "get_timeline": {
       "params": [
         "mode",
@@ -85,6 +103,25 @@
         "search",
         "shared",
         "status"
+      ]
+    },
+    "list_story_threads": {
+      "params": [
+        "includeDeleted",
+        "kind",
+        "projectId",
+        "storyThreadId",
+        "weight"
+      ]
+    },
+    "list_thread_proposals": {
+      "params": [
+        "kind",
+        "projectId",
+        "runId",
+        "source",
+        "state",
+        "storyThreadId"
       ]
     },
     "list_word_favorites": {
@@ -278,6 +315,30 @@
         "update_take"
       ]
     },
+    "manage_story_thread": {
+      "params": [
+        "action",
+        "entityIds",
+        "intoStoryThreadId",
+        "kind",
+        "projectId",
+        "question",
+        "rationale",
+        "readerQuestionId",
+        "readerQuestionIds",
+        "scope",
+        "storyThreadId",
+        "tags",
+        "title",
+        "touches",
+        "weight"
+      ],
+      "actions": [
+        "create",
+        "link_reader_question",
+        "merge"
+      ]
+    },
     "manage_storyboard": {
       "params": [
         "action",
@@ -338,6 +399,30 @@
       "params": [
         "nodeId",
         "projectId"
+      ]
+    },
+    "review_thread_proposal": {
+      "params": [
+        "action",
+        "decisionBatchId",
+        "edit",
+        "intoProposalId",
+        "intoStoryThreadId",
+        "kind",
+        "projectId",
+        "proposalId",
+        "proposalIds",
+        "reason",
+        "source",
+        "storyThreadId"
+      ],
+      "actions": [
+        "accept",
+        "dismiss",
+        "edit_accept",
+        "merge",
+        "restore",
+        "undo"
       ]
     },
     "search_project": {

@@ -34,6 +34,8 @@ describe('the tool surface', () => {
       'get_production', 'compile_prompt',
       // A first reader's report: reads a run, changes nothing.
       'get_reader_report',
+      // Story threads (ezquill epic #71): rows, the derived map, proposals.
+      'list_story_threads', 'get_thread_map_data', 'list_thread_proposals',
     ]);
 
     for (const tool of TOOLS) {
@@ -49,7 +51,16 @@ describe('the tool surface', () => {
     // gesture. A connector granted ezquill:write holds both Comment and Write,
     // so an agent able to propose would also be able to accept — and a
     // suggestion it can accept itself is a write with extra steps.
+    //
+    // ONE named exception, and it is about story threads, not prose:
+    // review_thread_proposal decides story-thread proposals for the writer
+    // (ezquill #915, by the owner's call). It changes no words in the
+    // manuscript, every decision is undoable, and its description says it is
+    // for when the writer asked. Named here so a second exception cannot
+    // arrive without someone deciding it.
+    const EXCEPTIONS = new Set(['review_thread_proposal']);
     for (const tool of TOOLS) {
+      if (EXCEPTIONS.has(tool.name)) continue;
       assert.ok(!/accept/i.test(tool.name), `${tool.name} looks like it can accept a proposal`);
       assert.ok(
         !/accept/i.test(JSON.stringify(tool.inputSchema?.properties?.action ?? {})),
@@ -98,6 +109,8 @@ describe('instructions', () => {
     // The comic's panels (ezquill #710) fit by folding into that paragraph.
     // The first reader (ezquill #898) fit by cutting the backfill line and the
     // upload steps, both of which manage_production's own description carries.
+    // Story threads (ezquill #915) fit by cutting the outline's points
+    // sentence, which manage_outline's own description carries.
     assert.ok(Buffer.byteLength(INSTRUCTIONS, 'utf8') < 6250);
   });
 
