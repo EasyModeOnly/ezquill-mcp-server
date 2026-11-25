@@ -77,6 +77,14 @@ export const REMOTE_SAFE = new Set([
   'get_reader_report',
   'manage_first_reader',
   'read_as_first_reader',
+  // Story threads (ezquill epic #71): the API's story-thread, touch, proposal
+  // and map-data routes, with the caller's own token. API calls only.
+  'list_story_threads',
+  'get_thread_map_data',
+  'list_thread_proposals',
+  'manage_story_thread',
+  'add_thread_touch',
+  'review_thread_proposal',
 ]);
 
 export const isRemoteSafe = (name) => REMOTE_SAFE.has(name);

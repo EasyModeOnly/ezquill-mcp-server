@@ -23,6 +23,9 @@ a person already wrote becomes a suggested edit they accept in ezQuill — see
 | `get_timeline` | story chronology, or the writer's own milestones |
 | `list_feedback` | open comments and suggested edits |
 | `get_reader_report` | what a simulated first reader thought, per section or across the book: engagement, questions raised and answered, predictions, confusions. Reactions, not facts |
+| `list_story_threads` | the story's threads (the questions it makes the reader want answered), or one with its touches and the words they quote |
+| `get_thread_map_data` | the story-thread map's data as the writer's own map reads it: statuses, stations, load, nesting, alerts. Derived by ezQuill, relayed as is |
+| `list_thread_proposals` | story-thread proposals waiting for (or decided by) the writer |
 | `lookup_word` | a word's senses, synonyms by meaning, antonyms, forms — the writer's dictionary |
 | `list_word_favorites` | the words the writer has starred, with their notes |
 | `authenticate`, `sign_out` | signing in. **Local only** — over a connector the client owns OAuth |
@@ -40,6 +43,9 @@ a person already wrote becomes a suggested edit they accept in ezQuill — see
 | `manage_cast` | who is in a scene, and in what role |
 | `manage_timeline` | events in the story, or milestones in the writing |
 | `manage_feedback` | comment, reply, resolve |
+| `manage_story_thread` | **proposes** a story thread, a merge, or a reader-question link. The writer accepts it in ezQuill |
+| `add_thread_touch` | **proposes** a place that moves a thread, its quote anchored on the paragraph |
+| `review_thread_proposal` | accept, edit and accept, dismiss, restore, merge or undo story-thread proposals **for the writer**, only when they ask |
 | `manage_first_reader` | have ezQuill's model read a story as a first reader: estimate, start, continue one batch, cancel. **Spends the writer's credits** — only when they ask |
 | `read_as_first_reader` | be the first reader yourself, one section per `next`, answers checked on `submit`. No credits; run it in a fresh subagent that has seen nothing of the book |
 
@@ -53,6 +59,14 @@ and accepted or rejected by the writer.
 `ezquill:write` holds the permission to accept as well as to propose, so a
 suggestion an agent could accept itself would be a write with extra steps. The
 safeguard is that the tool does not exist.
+
+**Story threads are the one named exception, and they are not prose.** An
+agent's thread or touch is a proposal too (source `connector`), so nothing
+lands on the writer's map without them. `review_thread_proposal` decides
+proposals for the writer when they ask an agent to ("accept the three clues in
+chapter 2"): it changes no words in the manuscript, every decision is undoable,
+and an undo that would discard the writer's later edits is refused. The
+surface test names it as the only tool allowed an accept.
 
 Two more things the tools do so a caller cannot get them wrong: `write_draft`
 composes the whole-section reconcile itself (sending only your new paragraphs
