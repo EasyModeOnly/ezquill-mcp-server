@@ -22,6 +22,7 @@ a person already wrote becomes a suggested edit they accept in ezQuill — see
 | `get_entity` | one of them in full, with relations and appearances |
 | `get_timeline` | story chronology, or the writer's own milestones |
 | `list_feedback` | open comments and suggested edits |
+| `get_reader_report` | what a simulated first reader thought, per section or across the book: engagement, questions raised and answered, predictions, confusions. Reactions, not facts |
 | `lookup_word` | a word's senses, synonyms by meaning, antonyms, forms — the writer's dictionary |
 | `list_word_favorites` | the words the writer has starred, with their notes |
 | `authenticate`, `sign_out` | signing in. **Local only** — over a connector the client owns OAuth |
@@ -39,6 +40,8 @@ a person already wrote becomes a suggested edit they accept in ezQuill — see
 | `manage_cast` | who is in a scene, and in what role |
 | `manage_timeline` | events in the story, or milestones in the writing |
 | `manage_feedback` | comment, reply, resolve |
+| `manage_first_reader` | have ezQuill's model read a story as a first reader: estimate, start, continue one batch, cancel. **Spends the writer's credits** — only when they ask |
+| `read_as_first_reader` | be the first reader yourself, one section per `next`, answers checked on `submit`. No credits; run it in a fresh subagent that has seen nothing of the book |
 
 **Additive writes go straight through; replacing a person's words does not.**
 Adding a paragraph, filling in one that was planned but never written, creating

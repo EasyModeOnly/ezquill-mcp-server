@@ -32,6 +32,8 @@ describe('the tool surface', () => {
       // Production reads. compile_prompt counts a use server-side, but changes
       // nothing a person wrote.
       'get_production', 'compile_prompt',
+      // A first reader's report: reads a run, changes nothing.
+      'get_reader_report',
     ]);
 
     for (const tool of TOOLS) {
@@ -94,6 +96,8 @@ describe('instructions', () => {
     // already 3 bytes short of. Raised by exactly that paragraph rather than
     // trimming other rules to make room; a further rise should cut first.
     // The comic's panels (ezquill #710) fit by folding into that paragraph.
+    // The first reader (ezquill #898) fit by cutting the backfill line and the
+    // upload steps, both of which manage_production's own description carries.
     assert.ok(Buffer.byteLength(INSTRUCTIONS, 'utf8') < 6250);
   });
 
